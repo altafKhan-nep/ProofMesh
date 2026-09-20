@@ -1,0 +1,33 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# builds
+.next/
+dist/
+out/
+build/
+*.tsbuildinfo
+
+# env
+.env
+.env*.local
+.env.local
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
+
+# vercel
+.vercel/
+
+# crypto keys (never commit)
+*.keypair
+*.pem
+keygen-scripts/

@@ -1,0 +1,377 @@
+<!DOCTYPE html>
+
+<html lang="en"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<title>Telemetry &amp; Attribution Report</title>
+<!-- Material Symbols Outlined font -->
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<!-- Fonts: Geist & JetBrains Mono -->
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          "colors": {
+            "text-primary": "#111413",
+            "surface-container-lowest": "#ffffff",
+            "on-error": "#ffffff",
+            "text-secondary": "#484E4B",
+            "surface-dim": "#dadad8",
+            "on-secondary-fixed": "#042012",
+            "surface-container-low": "#f4f3f1",
+            "on-tertiary-fixed": "#00210f",
+            "surface-subtle": "#F4F3EF",
+            "on-secondary": "#ffffff",
+            "border-subtle": "#E5E4DE",
+            "on-primary-container": "#93d4a7",
+            "badge-green-border": "#C2E5D1",
+            "surface-base": "#F9F8F6",
+            "surface-card": "#FFFFFF",
+            "surface-variant": "#e3e2e0",
+            "tertiary": "#004525",
+            "surface-container-high": "#e9e8e6",
+            "error": "#ba1a1a",
+            "text-muted": "#7A827E",
+            "verified-dot": "#10B981",
+            "on-tertiary-container": "#72da99",
+            "secondary-container": "#c7e8d0",
+            "on-secondary-container": "#4c6956",
+            "primary-fixed-dim": "#94d5a8",
+            "on-tertiary": "#ffffff",
+            "on-tertiary-fixed-variant": "#00522d",
+            "primary-container": "#1d5d3a",
+            "secondary-fixed-dim": "#aeceb7",
+            "surface-bright": "#faf9f7",
+            "on-secondary-fixed-variant": "#314d3b",
+            "error-container": "#ffdad6",
+            "inverse-surface": "#2f3130",
+            "accent-neon": "#B8FF66",
+            "primary": "#004525",
+            "tertiary-fixed-dim": "#73db9a",
+            "background": "#faf9f7",
+            "outline": "#707971",
+            "surface-container": "#efeeec",
+            "on-primary-fixed-variant": "#0d5130",
+            "on-background": "#1a1c1b",
+            "on-primary-fixed": "#00210f",
+            "inverse-on-surface": "#f1f1ef",
+            "surface": "#faf9f7",
+            "surface-tint": "#2b6a46",
+            "border-strong": "#CDCCC4",
+            "tertiary-fixed": "#8ff8b4",
+            "on-surface": "#1a1c1b",
+            "tertiary-container": "#005f35",
+            "on-surface-variant": "#404942",
+            "surface-container-highest": "#e3e2e0",
+            "badge-green-text": "#194D31",
+            "inverse-primary": "#94d5a8",
+            "outline-variant": "#c0c9bf",
+            "on-error-container": "#93000a",
+            "secondary-fixed": "#caead3",
+            "secondary": "#486552",
+            "primary-fixed": "#aff1c3",
+            "badge-green-bg": "#E8F5EE",
+            "on-primary": "#ffffff"
+          },
+          "borderRadius": {
+            "DEFAULT": "0.125rem",
+            "lg": "0.25rem",
+            "xl": "0.5rem",
+            "full": "0.75rem"
+          },
+          "spacing": {
+            "space-2xl": "4rem",
+            "space-lg": "1.5rem",
+            "space-md": "1rem",
+            "space-xxs": "0.125rem",
+            "gutter-sm": "1rem",
+            "space-xl": "2.5rem",
+            "space-sm": "0.5rem",
+            "margin": "3rem",
+            "gutter": "1.5rem",
+            "space-xs": "0.25rem",
+            "margin-mobile": "1.25rem"
+          },
+          "fontFamily": {
+            "label-mono-tag": ["JetBrains Mono", "monospace"],
+            "headline-md": ["Geist", "sans-serif"],
+            "label-code": ["JetBrains Mono", "monospace"],
+            "headline-lg-mobile": ["Geist", "sans-serif"],
+            "body-md": ["Geist", "sans-serif"],
+            "display-mobile": ["Geist", "sans-serif"],
+            "label-caps": ["JetBrains Mono", "monospace"],
+            "body-sm": ["Geist", "sans-serif"],
+            "headline-lg": ["Geist", "sans-serif"],
+            "display": ["Geist", "sans-serif"],
+            "headline-sm": ["Geist", "sans-serif"],
+            "body-lg": ["Geist", "sans-serif"]
+          },
+          "fontSize": {
+            "label-mono-tag": ["11px", { "lineHeight": "14px", "letterSpacing": "0.06em", "fontWeight": "500" }],
+            "headline-md": ["24px", { "lineHeight": "30px", "letterSpacing": "-0.02em", "fontWeight": "500" }],
+            "label-code": ["12px", { "lineHeight": "16px", "letterSpacing": "0.02em", "fontWeight": "500" }],
+            "headline-lg-mobile": ["28px", { "lineHeight": "34px", "letterSpacing": "-0.025em", "fontWeight": "500" }],
+            "body-md": ["14px", { "lineHeight": "20px", "letterSpacing": "-0.005em", "fontWeight": "400" }],
+            "display-mobile": ["38px", { "lineHeight": "42px", "letterSpacing": "-0.035em", "fontWeight": "500" }],
+            "label-caps": ["10px", { "lineHeight": "14px", "letterSpacing": "0.08em", "fontWeight": "600" }],
+            "body-sm": ["13px", { "lineHeight": "18px", "letterSpacing": "0em", "fontWeight": "400" }],
+            "headline-lg": ["36px", { "lineHeight": "42px", "letterSpacing": "-0.03em", "fontWeight": "500" }],
+            "display": ["56px", { "lineHeight": "60px", "letterSpacing": "-0.04em", "fontWeight": "500" }],
+            "headline-sm": ["18px", { "lineHeight": "24px", "letterSpacing": "-0.015em", "fontWeight": "600" }],
+            "body-lg": ["16px", { "lineHeight": "24px", "letterSpacing": "-0.01em", "fontWeight": "400" }]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    .material-symbols-outlined {
+      font-family: 'Material Symbols Outlined';
+      font-weight: normal;
+      font-style: normal;
+      font-size: 20px;
+      line-height: 1;
+      letter-spacing: normal;
+      text-transform: none;
+      display: inline-block;
+      white-space: nowrap;
+      word-wrap: normal;
+      direction: ltr;
+      -webkit-font-feature-settings: 'liga';
+      -webkit-font-smoothing: antialiased;
+    }
+    .coordinate-grid {
+      background-size: 32px 32px;
+      background-image: 
+        linear-gradient(to right, #E8E6DF 1px, transparent 1px),
+        linear-gradient(to bottom, #E8E6DF 1px, transparent 1px);
+    }
+  </style>
+</head>
+<body class="bg-surface-base text-text-primary antialiased min-h-screen">
+<!-- STANDALONE SECTION -->
+<section class="relative w-full min-h-screen py-16 px-4 md:px-8 lg:px-12 flex flex-col justify-center items-center bg-surface-base coordinate-grid">
+<!-- Top-level Section Content Container -->
+<div class="w-full max-w-5xl mx-auto flex flex-col items-start gap-8 z-10">
+<!-- Section Tag Header -->
+<div class="flex flex-col gap-3">
+<div class="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-surface-container-low border border-border-subtle shadow-sm">
+<span class="w-2 h-2 rounded-full bg-verified-dot animate-pulse"></span>
+<span class="font-label-mono-tag text-text-secondary uppercase tracking-wider text-xs">
+            [ TELEMETRY &amp; ATTRIBUTION REPORT ]
+          </span>
+</div>
+<h2 class="font-headline-lg text-text-primary tracking-tight max-w-2xl text-2xl sm:text-3xl md:text-4xl font-medium leading-tight">
+          Deterministic evidence, quantified and verifiable down to the commit.
+        </h2>
+</div>
+<!-- Evidence-Report Dashboard Card Window -->
+<div class="w-full bg-surface-card rounded-xl border border-border-strong shadow-[0_4px_24px_rgba(0,0,0,0.04),0_1px_2px_rgba(0,0,0,0.02)] overflow-hidden">
+<!-- App Window Header Bar -->
+<div class="flex flex-wrap items-center justify-between gap-4 px-6 py-4 bg-surface-subtle border-b border-border-subtle">
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1.5 pr-2 border-r border-border-strong">
+<span class="w-2.5 h-2.5 rounded-full bg-border-strong inline-block"></span>
+<span class="w-2.5 h-2.5 rounded-full bg-border-strong inline-block"></span>
+<span class="w-2.5 h-2.5 rounded-full bg-border-strong inline-block"></span>
+</div>
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-text-muted text-base" data-icon="terminal">terminal</span>
+<span class="font-label-code text-xs md:text-sm text-text-primary font-medium tracking-tight">
+                github.com/torvalds-core · alexander-vance
+              </span>
+</div>
+</div>
+<div class="flex flex-wrap items-center gap-2.5 font-label-mono-tag text-xs">
+<!-- Status Pill -->
+<div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded bg-badge-green-bg border border-badge-green-border text-primary-container font-medium">
+<span class="w-1.5 h-1.5 rounded-full bg-verified-dot"></span>
+<span>VERIFIED ON-CHAIN</span>
+</div>
+<!-- Solana TX Anchor -->
+<a class="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-surface-card border border-border-subtle text-text-secondary hover:text-text-primary transition-colors" href="#">
+<span>TX: 4mF7...9xK2</span>
+<span class="material-symbols-outlined text-xs" data-icon="open_in_new">open_in_new</span>
+</a>
+<!-- Timestamp -->
+<span class="text-text-muted hidden sm:inline-block">Audited 14 mins ago</span>
+</div>
+</div>
+<!-- Dashboard Body Content -->
+<div class="p-6 md:p-8 flex flex-col gap-8">
+<!-- Metric Header Summary: Index Score & Precision Ring Indicator -->
+<div class="grid grid-cols-1 md:grid-cols-12 gap-6 p-6 rounded-lg bg-surface-subtle border border-border-subtle">
+<!-- Left: Aggregated Skill Index -->
+<div class="md:col-span-6 flex flex-col justify-center border-b md:border-b-0 md:border-r border-border-subtle pb-6 md:pb-0 md:pr-6">
+<div class="flex items-center gap-2 mb-1">
+<span class="font-label-caps text-text-muted uppercase text-xs">AGGREGATED SKILL INDEX</span>
+<span class="material-symbols-outlined text-text-muted text-sm" data-icon="info">info</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="font-display text-4xl sm:text-5xl font-medium tracking-tight text-text-primary">94.8</span>
+<span class="font-label-code text-text-muted text-lg">/ 100</span>
+</div>
+<div class="flex items-center gap-2 mt-2 font-label-code text-xs text-badge-green-text">
+<span class="material-symbols-outlined text-sm" data-icon="verified">verified</span>
+<span>Top 0.2% Peer Distribution · Cohort #892</span>
+</div>
+</div>
+<!-- Right: Confidence Ring Gauge & Precision Metrics -->
+<div class="md:col-span-6 flex items-center justify-between gap-6 pl-0 md:pl-4">
+<div class="flex flex-col gap-1">
+<span class="font-label-caps text-text-muted uppercase text-xs">STATISTICAL CONFIDENCE</span>
+<div class="flex items-center gap-2">
+<span class="font-headline-md text-2xl sm:text-3xl font-semibold text-text-primary">99.4%</span>
+<span class="px-2 py-0.5 rounded bg-surface-container text-text-secondary font-label-mono-tag text-xs">HIGH DEGREE</span>
+</div>
+<p class="font-label-code text-xs text-text-muted mt-1">
+                  Entropy Model v2.4 · p-val &lt; 0.001
+                </p>
+</div>
+<!-- Precision SVG Circular Ring Indicator -->
+<div class="relative flex-shrink-0 w-20 h-20 flex items-center justify-center">
+<svg class="w-20 h-20 -rotate-90 transform" viewbox="0 0 80 80">
+<!-- Track -->
+<circle cx="40" cy="40" fill="transparent" r="32" stroke="#EBE9E1" stroke-width="6"></circle>
+<!-- Filled Bar (99.4% of 201.06 circumference = ~199.8) -->
+<circle cx="40" cy="40" fill="transparent" r="32" stroke="#1D5D3A" stroke-dasharray="201.06" stroke-dashoffset="1.2" stroke-linecap="round" stroke-width="6"></circle>
+</svg>
+<div class="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+<span class="font-label-caps text-[10px] text-text-muted">σ</span>
+<span class="font-label-mono-tag text-[10px] font-bold text-primary-container">0.99</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Score Breakdown Section (5 Categories) -->
+<div class="flex flex-col gap-4">
+<div class="flex items-center justify-between border-b border-border-subtle pb-2">
+<h3 class="font-label-caps text-xs text-text-primary uppercase tracking-wider font-semibold">
+                DIMENSIONAL COMPETENCY VECTOR
+              </h3>
+<span class="font-label-mono-tag text-xs text-text-muted">5 VECTORS AUDITED</span>
+</div>
+<div class="flex flex-col gap-4">
+<!-- Item 01 -->
+<div class="flex flex-col gap-1.5">
+<div class="flex justify-between items-baseline">
+<span class="font-body-md text-text-primary text-sm font-medium">01. Code Architecture &amp; Modularity</span>
+<span class="font-label-code text-xs font-semibold text-text-primary">98%</span>
+</div>
+<div class="w-full h-2 rounded-full bg-[#EBE9E1] overflow-hidden">
+<div class="h-full bg-primary-container rounded-full" style="width: 98%;"></div>
+</div>
+</div>
+<!-- Item 02 -->
+<div class="flex flex-col gap-1.5">
+<div class="flex justify-between items-baseline">
+<span class="font-body-md text-text-primary text-sm font-medium">02. Peer Review Acceptance &amp; Consensus</span>
+<span class="font-label-code text-xs font-semibold text-text-primary">94%</span>
+</div>
+<div class="w-full h-2 rounded-full bg-[#EBE9E1] overflow-hidden">
+<div class="h-full bg-primary-container rounded-full" style="width: 94%;"></div>
+</div>
+</div>
+<!-- Item 03 -->
+<div class="flex flex-col gap-1.5">
+<div class="flex justify-between items-baseline">
+<span class="font-body-md text-text-primary text-sm font-medium">03. Cross-Repository Impact</span>
+<span class="font-label-code text-xs font-semibold text-text-primary">91%</span>
+</div>
+<div class="w-full h-2 rounded-full bg-[#EBE9E1] overflow-hidden">
+<div class="h-full bg-primary-container rounded-full" style="width: 91%;"></div>
+</div>
+</div>
+<!-- Item 04 -->
+<div class="flex flex-col gap-1.5">
+<div class="flex justify-between items-baseline">
+<span class="font-body-md text-text-primary text-sm font-medium">04. Vulnerability &amp; Security Clearance</span>
+<span class="font-label-code text-xs font-semibold text-text-primary">96%</span>
+</div>
+<div class="w-full h-2 rounded-full bg-[#EBE9E1] overflow-hidden">
+<div class="h-full bg-primary-container rounded-full" style="width: 96%;"></div>
+</div>
+</div>
+<!-- Item 05 -->
+<div class="flex flex-col gap-1.5">
+<div class="flex justify-between items-baseline">
+<span class="font-body-md text-text-primary text-sm font-medium">05. Maintainer Retention &amp; Stability</span>
+<span class="font-label-code text-xs font-semibold text-text-primary">89%</span>
+</div>
+<div class="w-full h-2 rounded-full bg-[#EBE9E1] overflow-hidden">
+<div class="h-full bg-primary-container rounded-full" style="width: 89%;"></div>
+</div>
+</div>
+</div>
+</div>
+<!-- Evidence Citations Section -->
+<div class="flex flex-col gap-3 pt-2">
+<div class="flex items-center justify-between border-b border-border-subtle pb-2">
+<h4 class="font-label-caps text-xs text-text-muted uppercase tracking-wider font-semibold">
+                PRIMARY EVIDENCE CITATIONS (24 RECORDED)
+              </h4>
+<button class="font-label-mono-tag text-xs text-primary-container hover:underline cursor-pointer inline-flex items-center gap-1">
+<span>VERIFY ALL CITATIONS</span>
+<span class="material-symbols-outlined text-xs" data-icon="chevron_right">chevron_right</span>
+</button>
+</div>
+<div class="flex flex-col gap-2.5">
+<!-- Evidence 1 -->
+<div class="p-3.5 rounded-lg bg-surface-container-low border border-border-subtle flex flex-col sm:flex-row sm:items-start justify-between gap-3 hover:border-border-strong transition-colors">
+<div class="flex items-start gap-3">
+<span class="material-symbols-outlined text-primary-container text-lg mt-0.5 flex-shrink-0" data-icon="call_split">call_split</span>
+<p class="font-body-sm text-text-primary leading-relaxed">
+                    Merged PR #482 into external high-reputation repo (<span class="font-label-code text-xs font-medium text-text-primary">facebook/react</span>) — Architectural refactor surviving 18 months in production without regression.
+                  </p>
+</div>
+<span class="font-label-mono-tag text-[10px] px-2 py-0.5 rounded bg-surface-card border border-border-subtle text-text-secondary shrink-0 self-start">
+                  EXTERNAL_MERGE
+                </span>
+</div>
+<!-- Evidence 2 -->
+<div class="p-3.5 rounded-lg bg-surface-container-low border border-border-subtle flex flex-col sm:flex-row sm:items-start justify-between gap-3 hover:border-border-strong transition-colors">
+<div class="flex items-start gap-3">
+<span class="material-symbols-outlined text-primary-container text-lg mt-0.5 flex-shrink-0" data-icon="verified_user">verified_user</span>
+<p class="font-body-sm text-text-primary leading-relaxed">
+                    312 GPG-signed commits across 4 major releases with zero detected security CVE signatures.
+                  </p>
+</div>
+<span class="font-label-mono-tag text-[10px] px-2 py-0.5 rounded bg-surface-card border border-border-subtle text-text-secondary shrink-0 self-start">
+                  INTEGRITY_AUDIT
+                </span>
+</div>
+<!-- Evidence 3 -->
+<div class="p-3.5 rounded-lg bg-surface-container-low border border-border-subtle flex flex-col sm:flex-row sm:items-start justify-between gap-3 hover:border-border-strong transition-colors">
+<div class="flex items-start gap-3">
+<span class="material-symbols-outlined text-primary-container text-lg mt-0.5 flex-shrink-0" data-icon="group">group</span>
+<p class="font-body-sm text-text-primary leading-relaxed">
+                    Consensus review approvals from 6 tier-1 maintainers across 3 distinct decentralized organizations.
+                  </p>
+</div>
+<span class="font-label-mono-tag text-[10px] px-2 py-0.5 rounded bg-surface-card border border-border-subtle text-text-secondary shrink-0 self-start">
+                  MULTI_MAINTAINER_CONSENSUS
+                </span>
+</div>
+</div>
+</div>
+</div>
+<!-- Footer Telemetry Strip -->
+<div class="px-6 py-3 bg-surface-container-low border-t border-border-subtle flex flex-wrap items-center justify-between gap-2 font-label-code text-[11px] text-text-muted">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-xs text-badge-green-text" data-icon="lock">lock</span>
+<span>Solana Ledger Attestation: Program ID: PrfMsh111...spl · State Verified</span>
+</div>
+<div class="truncate max-w-full">
+<span class="text-text-secondary">SHA-256 Merkle Root:</span> e3b0c44298fc1c149afbf4c8996fb924
+          </div>
+</div>
+</div>
+</div>
+</section>
+</body></html>

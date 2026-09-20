@@ -1,0 +1,29 @@
+{
+  "name": "proofmesh",
+  "private": true,
+  "version": "2.4.1",
+  "description": "ProofMesh — deterministic developer verification engine issued as Solana credentials",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @proofmesh/web --filter @proofmesh/api dev",
+    "dev:web": "pnpm --filter @proofmesh/web dev",
+    "dev:api": "pnpm --filter @proofmesh/api dev",
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "typecheck": "pnpm -r typecheck",
+    "seed": "pnpm --filter @proofmesh/api seed"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild"
+    ]
+  },
+  "packageManager": "pnpm@12.3.4"
+}

@@ -1,0 +1,25 @@
+{
+  "name": "@proofmesh/api",
+  "private": true,
+  "version": "2.4.1",
+  "type": "module",
+  "main": "src/index.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "start": "tsx src/index.ts",
+    "seed": "tsx src/seed.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@proofmesh/scoring-engine": "workspace:*",
+    "@proofmesh/shared-types": "workspace:*",
+    "@proofmesh/verifier-sdk": "workspace:*",
+    "@fastify/cors": "^10.0.2",
+    "fastify": "^5.2.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "tsx": "^4.19.2",
+    "typescript": "^5.6.3"
+  }
+}
