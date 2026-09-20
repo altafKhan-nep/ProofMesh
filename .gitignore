@@ -31,3 +31,5 @@ pnpm-debug.log*
 *.keypair
 *.pem
 keygen-scripts/
+# solana keypair secrets (never committed)
+.secrets/
