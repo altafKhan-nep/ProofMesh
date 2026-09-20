@@ -15,7 +15,7 @@ export function EvidenceGraph({ score = 94.1, confidence = 99.1, walletTag = 'so
   const dashOffset = circ * (1 - confPct / 100);
 
   return (
-    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 640" width="760" height="640" fill="none">
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 760 640" width="100%" height="100%" className="w-full h-auto" fill="none" preserveAspectRatio="xMidYMid meet">
       <defs>
         <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
           <path d="M 40 0 L 0 0 0 40" fill="none" stroke="#E6E4DD" strokeWidth="0.75" strokeDasharray="2 4" />
@@ -120,6 +120,11 @@ export function EvidenceGraph({ score = 94.1, confidence = 99.1, walletTag = 'so
 
       <text x="40" y="605" fontFamily="monospace" fontSize="10" fill="#8E918B" letterSpacing="1">FIGURE 01: GRAPH RESOLUTION TO ON-CHAIN CREDENTIAL SHAPE</text>
       <text x="630" y="605" fontFamily="monospace" fontSize="10" fill="#1D5D3A" fontWeight="600">STATE: VERIFIED</text>
+
+      <line x1="40" y1="614" x2="720" y2="614" stroke="#EFEFEA" strokeWidth="1" />
+      <text x="40" y="628" fontFamily="monospace" fontSize="9.5" fill="#8E918B">INPUT: GIT_TREE_HASH(SHA-256)</text>
+      <text x="290" y="628" fontFamily="monospace" fontSize="9.5" fill="#8E918B">PROOF-CIRCUIT: GROTH16_SOL</text>
+      <text x="650" y="628" fontFamily="monospace" fontSize="9.5" fontWeight="600" fill="#1D5D3A">STATUS: FINALIZED</text>
     </svg>
   );
 }
