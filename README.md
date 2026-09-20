@@ -2,11 +2,11 @@
 
 Deterministic developer verification engine issued as Solana credentials.
 
-ProofMesh empirically evaluates GitHub evidence — signed commits, merged PRs, peer review, repository entropy,
-test survival, and negative-test discipline — to issue an **unforgeable skill credential anchored on Solana**.
+ProofMesh empirically evaluates GitHub evidence  signed commits, merged PRs, peer review, repository entropy,
+test survival, and negative-test discipline ; to issue an **unforgeable skill credential anchored on Solana**.
 Everything is deterministic and reproducible: the same snapshot always produces the same score, confidence, and level,
 with **honest abstention** when the skeptic pass cannot falsify enough risk away. LLM passes are optional and can only
-lower confidence or block a credential — never raise it.
+lower confidence or block a credential ; never raise it.
 
 ## Source of truth
 
