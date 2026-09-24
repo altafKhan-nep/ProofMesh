@@ -32,6 +32,12 @@ export interface WalletBinding {
   domain: string;
   gistUrl: string | null;
   boundAt: string;
+  /**
+   * Proof status. `wallet` is proven by a signature over an audience-bound
+   * challenge; `github` stays 'pending' until GitHub-side ownership is proven
+   * (OAuth). No credential may be minted for a binding that is not verified.
+   */
+  verified?: { wallet: boolean; github: 'proven' | 'pending' };
 }
 
 // ---------------------------------------------------------------------------
@@ -446,6 +452,10 @@ export interface SiwsChallenge {
   chainId: string; // "solana:101" (devnet)
   issuedAt: string; // ISO
   expirationTime: string; // ISO
+  /** Audience binding: a 'signin' challenge can never be replayed as a 'bind' proof. */
+  purpose?: 'signin' | 'bind';
+  /** For purpose='bind': the GitHub account the signature authorises. */
+  subject?: string;
 }
 
 export interface SiwsVerifyRequest {

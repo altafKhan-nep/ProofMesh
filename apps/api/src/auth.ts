@@ -59,16 +59,26 @@ export interface SiwsMessageParts {
   nonce: string;
   issuedAt: string;
   expirationTime: string;
+  subject?: string;
 }
 
 export function buildSiwsMessage(parts: Omit<SiwsMessageParts, 'statement'> & { statement?: string }): string {
-  const statement = parts.statement ?? 'Determine your role on ProofMesh and prove ownership of this wallet.';
-  return [
+  const statement =
+    parts.statement ??
+    (parts.subject
+      ? `Authorise this ProofMesh account to publish on-chain credentials for @${parts.subject}.`
+      : 'Determine your role on ProofMesh and prove ownership of this wallet.');
+  const lines = [
     `${parts.domain} wants you to sign in with your Solana account:`,
     ``,
     parts.wallet,
     ``,
-    statement,
+    statement
+  ];
+  if (parts.subject) {
+    lines.push(``, `GitHub account: ${parts.subject}`);
+  }
+  lines.push(
     ``,
     `URI: ${parts.uri}`,
     `Version: ${SIWS_VERSION}`,
@@ -76,7 +86,8 @@ export function buildSiwsMessage(parts: Omit<SiwsMessageParts, 'statement'> & { 
     `Nonce: ${parts.nonce}`,
     `Issued At: ${parts.issuedAt}`,
     `Expiration Time: ${parts.expirationTime}`
-  ].join('\n');
+  );
+  return lines.join('\n');
 }
 
 const NONCE_RE = /^Nonce:\s*(.+)$/m;
@@ -116,10 +127,15 @@ export function verifySiwsSignature(
 // Challenge creation / session issue (pure-ish helpers; state lives in Store)
 // ---------------------------------------------------------------------------
 
-export function newChallenge(wallet: string): SiwsChallenge {
+export function newChallenge(
+  wallet: string,
+  opts: { purpose?: 'signin' | 'bind'; subject?: string } = {}
+): SiwsChallenge {
   const issuedAt = new Date();
   const expirationTime = new Date(issuedAt.getTime() + CHALLENGE_TTL_MS);
   const nonce = randomUUID();
+  const purpose = opts.purpose ?? 'signin';
+  const subject = purpose === 'bind' ? (opts.subject ?? '').trim() : undefined;
   return {
     wallet,
     nonce,
@@ -128,6 +144,7 @@ export function newChallenge(wallet: string): SiwsChallenge {
     chainId: SIWS_CHAIN_ID,
     issuedAt: issuedAt.toISOString(),
     expirationTime: expirationTime.toISOString(),
+    ...(purpose === 'bind' ? { purpose, subject } : {}),
     message: buildSiwsMessage({
       wallet,
       domain: SIWS_DOMAIN,
@@ -135,7 +152,8 @@ export function newChallenge(wallet: string): SiwsChallenge {
       chainId: SIWS_CHAIN_ID,
       nonce,
       issuedAt: issuedAt.toISOString(),
-      expirationTime: expirationTime.toISOString()
+      expirationTime: expirationTime.toISOString(),
+      ...(subject ? { subject } : {})
     })
   };
 }

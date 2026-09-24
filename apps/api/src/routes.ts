@@ -71,12 +71,17 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   const admin = { preHandler: requireAdmin(store, adminWallets) };
 
   app.post('/api/auth/challenge', async (req, reply) => {
-    const body = (req.body ?? {}) as { wallet?: string };
+    const body = (req.body ?? {}) as { wallet?: string; purpose?: string; subject?: string };
     const wallet = (body.wallet ?? '').trim();
     if (!isValidPubkey(wallet)) {
       return reply.code(400).send({ error: 'invalid_wallet', message: 'Provide a valid base58 Solana public key.' });
     }
-    const challenge = newChallenge(wallet);
+    const purpose = body.purpose === 'bind' ? 'bind' : 'signin';
+    const subject = (body.subject ?? '').trim();
+    if (purpose === 'bind' && !/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/.test(subject)) {
+      return reply.code(400).send({ error: 'invalid_subject', message: 'A valid GitHub handle is required to bind.' });
+    }
+    const challenge = newChallenge(wallet, purpose === 'bind' ? { purpose, subject } : {});
     const issued = store.issueChallenge(challenge);
     if (!issued.ok) {
       return reply.code(429).send({ error: issued.reason, message: 'Too many open challenges for this wallet.' });
@@ -143,11 +148,55 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
 
   // ---------------------------------------------------------------- bind wallet
   app.post('/api/bind', auth, async (req, reply) => {
-    const body = (req.body ?? {}) as { githubUsername?: string; githubHandle?: string; wallet?: string };
+    const body = (req.body ?? {}) as {
+      githubUsername?: string;
+      githubHandle?: string;
+      wallet?: string;
+      message?: string;
+      signature?: string;
+    };
     const handle = body.githubUsername ?? body.githubHandle ?? '';
     const wallet = (body.wallet ?? '').trim();
     if (!handle) return reply.code(400).send({ error: 'developer_required' });
     if (!wallet) return reply.code(400).send({ error: 'wallet_required' });
+
+    // A binding is a claim that THIS wallet controls THIS GitHub account, so it
+    // must be proven by the session wallet. Accepting a bare handle+wallet pair
+    // would let any signed-in wallet claim someone else's identity.
+    const session = (req as RequestWithAuth).auth!;
+    if (session.wallet !== wallet) {
+      return reply.code(403).send({
+        error: 'wallet_mismatch',
+        message: 'A binding must be signed by the wallet that owns it — sign in with the wallet you are binding.'
+      });
+    }
+    const { message, signature } = body;
+    if (!message || !signature) {
+      return reply.code(400).send({
+        error: 'proof_required',
+        message: 'Sign a bind challenge (purpose=bind) with this wallet to prove the binding.'
+      });
+    }
+    const nonce = /^Nonce:\s*(.+)$/m.exec(message)?.[1];
+    if (!nonce) return reply.code(400).send({ error: 'malformed_message' });
+    const bindChallenge = store.consumeChallenge(nonce);
+    if (!bindChallenge) {
+      return reply.code(401).send({ error: 'challenge_not_found', message: 'Bind challenge unknown or already used.' });
+    }
+    // Audience binding: a sign-in challenge must never authorise a bind, and the
+    // challenge must name this exact GitHub account.
+    if (bindChallenge.purpose !== 'bind' || bindChallenge.subject?.toLowerCase() !== handle.toLowerCase()) {
+      return reply.code(401).send({ error: 'challenge_audience_mismatch' });
+    }
+    if (bindChallenge.wallet !== wallet) {
+      return reply.code(401).send({ error: 'challenge_wallet_mismatch' });
+    }
+    if (new Date(bindChallenge.expirationTime).getTime() < Date.now()) {
+      return reply.code(401).send({ error: 'challenge_expired' });
+    }
+    if (!verifySiwsSignature(bindChallenge.message, signature, wallet)) {
+      return reply.code(401).send({ error: 'invalid_signature' });
+    }
 
     let dev = store.findDeveloper(handle);
     if (!dev) {
@@ -175,7 +224,11 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     }
     if (!dev) return reply.code(404).send({ error: 'developer_not_found', githubHandle: handle });
 
-    const binding = store.bindWallet(dev.id, wallet);
+    const binding = store.bindWallet(dev.id, wallet, {
+      signedMessage: bindChallenge.message,
+      nonce: bindChallenge.nonce,
+      domain: bindChallenge.domain
+    });
     return { developer: dev, binding };
   });
 
@@ -193,6 +246,25 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
 
     const handle = body.githubHandle ?? body.githubUsername ?? '';
     if (!handle) return reply.code(400).send({ error: 'developer_required' });
+
+    // A caller may only direct a credential at a wallet they control: either the
+    // session wallet, or a wallet already bound to this developer with a verified
+    // proof. Otherwise anyone could mint a credential into someone else's wallet.
+    const session = (req as RequestWithAuth).auth!;
+    const requestedWallet = (body.wallet ?? '').trim();
+    if (requestedWallet) {
+      const target = store.findDeveloper(handle);
+      const bound = target?.linkedWallets.find((b) => b.wallet === requestedWallet);
+      const allowed = requestedWallet === session.wallet || (bound?.verified?.wallet === true && bound.verified.github === 'proven');
+      if (!allowed) {
+        return reply.code(403).send({
+          error: 'mint_target_not_proven',
+          message:
+            'Mint target must be the signed-in wallet or a fully verified binding for this developer.'
+        });
+      }
+    }
+
     let dev = store.findDeveloper(handle) ?? store.findDeveloperByWallet(handle);
 
     // Not a seeded developer? Try live GitHub ingestion (tautology-free: only
@@ -223,26 +295,17 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
 
     if (!dev) return reply.code(404).send({ error: 'developer_not_found', githubHandle: handle });
 
-    // Optional wallet binding at analyze time: caller's wallet becomes the
-    // credential recipient (honest live-user flow — no seeded wallet needed).
-    const wallet = (body.wallet ?? '').trim();
-    if (wallet) {
-      try {
-        store.bindWallet(dev.id, wallet);
-      } catch (err) {
-        if (err instanceof Error && err.message === 'developer_not_found') {
-          return reply.code(404).send({ error: 'developer_not_found' });
-        }
-        return reply.code(400).send({ error: 'wallet_invalid' });
-      }
-    }
+    // NOTE: analyze never creates a binding. Binding a wallet to a GitHub account
+    // is an explicit, signature-proven operation (POST /api/bind); implicitly
+    // binding here would let any signed-in caller claim someone else's identity.
+    // An unverified wallet simply receives a score, never a minted credential.
 
     const job = store.createJob({
       developerId: dev.id,
       githubUsername: dev.githubHandle,
       skillId,
       llmEnabled: !!body.llmEnabled && !!process.env.ANTHROPIC_API_KEY,
-      mintWallet: wallet || null
+      mintWallet: requestedWallet || null
     });
 
     const emit = (e: SseEvent) => emitFact(job.id, e);

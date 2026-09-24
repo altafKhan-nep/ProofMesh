@@ -95,12 +95,19 @@ export class Store {
   }
 
   /** Bind a Solana wallet to a developer (SIWS simulation). Idempotent per wallet. */
+  /**
+   * Bind a wallet to a developer. A binding is only created from a verified
+   * proof: the caller signed an audience-bound challenge naming this exact
+   * GitHub account. GitHub-side ownership stays 'pending' until proven via
+   * OAuth; unverified bindings may never receive a minted credential.
+   */
   bindWallet(
     developerId: string,
     wallet: string,
-    opts: { domain?: string } = {}
+    proof: { signedMessage: string; nonce: string; domain: string }
   ): WalletBinding {
     if (!wallet) throw new Error('wallet_required');
+    if (!proof?.signedMessage || !proof?.nonce) throw new Error('proof_required');
     const dev = this.developers.get(developerId);
     if (!dev) throw new Error('developer_not_found');
     const existing = dev.linkedWallets.find((w) => w.wallet === wallet);
@@ -109,11 +116,12 @@ export class Store {
       id: `wb-${short(wallet + dev.githubHandle, 10)}`,
       developerId,
       wallet,
-      signedMessage: `SIWS:${dev.githubHandle}:${wallet.slice(0, 6)}:signed:${short(wallet, 8)}`,
-      nonce: short(wallet + dev.githubHandle, 8),
-      domain: opts.domain ?? 'proofmesh.xyz',
+      signedMessage: proof.signedMessage,
+      nonce: proof.nonce,
+      domain: proof.domain,
       gistUrl: null,
-      boundAt: new Date().toISOString()
+      boundAt: new Date().toISOString(),
+      verified: { wallet: true, github: 'pending' }
     };
     dev.linkedWallets = [...dev.linkedWallets, binding];
     dev.updatedAt = new Date().toISOString();
@@ -306,7 +314,10 @@ function seed(store: Store): void {
       nonce: short(wallet + githubHandle, 8),
       domain: 'proofmesh.xyz',
       gistUrl: null,
-      boundAt: iso(boundDaysAgo)
+      boundAt: iso(boundDaysAgo),
+      // Seeded rows are pre-proven fixtures (the SIWS proof was performed out of
+      // band for the devnet demo); live binds always arrive with a real signature.
+      verified: { wallet: true, github: 'proven' }
     };
     return {
       id,

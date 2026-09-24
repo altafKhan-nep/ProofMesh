@@ -73,7 +73,13 @@ export async function runAnalysis(
   };
 
   const developer = store.findDeveloper(job.developerId)!;
-  const wallet = job.mintWallet ?? developer.linkedWallets[0]?.wallet ?? 'unbound';
+  // Mint target must be provably controlled. A binding is only usable once its
+  // wallet signature is verified AND GitHub ownership is proven; otherwise we
+  // still score, but never attribute a credential to that wallet.
+  const requestedWallet = job.mintWallet ?? developer.linkedWallets[0]?.wallet ?? 'unbound';
+  const binding = developer.linkedWallets.find((b) => b.wallet === requestedWallet);
+  const bindingVerified = binding?.verified?.wallet === true && binding.verified.github === 'proven';
+  const wallet = bindingVerified ? requestedWallet : 'unbound';
   const skill = SKILLS[job.skillId];
   const repos = store.reposFor(job.developerId);
   const baseEvidence = store.evidenceFor(job.developerId);

@@ -191,6 +191,31 @@ Keep off-chain: the full evidence report. Keep on-chain: score, confidence, leve
 4. **Independent verifiability:** the developer can publish the signed message as a public gist, so *anyone* can verify the GitHub↔wallet link without trusting the backend.
 5. Policy: one GitHub ↔ many wallets allowed (re-attest to a new wallet); one wallet ↔ one GitHub per skill schema.
 
+**Binding is a proof, not an assertion.** A binding is created *only* from a
+signature over a server-issued, **audience-bound** challenge
+(`purpose: 'bind'`, `subject: <github handle>`), signed by the same wallet that
+holds the session, and consumed single-use. A sign-in challenge can never
+authorise a bind, and a challenge naming a different account is rejected — so a
+captured sign-in signature cannot be replayed to claim someone else's identity.
+The proof (message, nonce, domain) is stored on the binding.
+
+Consequently, three takeover paths are closed by construction:
+
+- `POST /api/bind` rejects a bare `handle + wallet` pair (`proof_required`) and
+  refuses a wallet the session does not own (`wallet_mismatch`).
+- `POST /api/analyze` never creates a binding; its `wallet` field is a *mint
+  target* that must be the session wallet or a fully verified binding
+  (`mint_target_not_proven`). Otherwise anyone could mint a credential for
+  `sindresorhus` into their own wallet.
+- The pipeline attributes a credential only to a binding whose wallet signature
+  **and** GitHub ownership are both proven; otherwise the developer is scored
+  but no credential is attributed (`wallet = 'unbound'`).
+
+`binding.verified.github` stays `pending` until GitHub-side ownership is proven
+through OAuth (the GitHub App session). That is the one remaining proof leg, and
+it is deliberately fail-closed: pending bindings score but never mint.
+
+
 ## 9. Solana design
 
 **Why Solana, in four sentences:**
