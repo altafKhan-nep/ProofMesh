@@ -12,10 +12,22 @@ import type { CredentialLevel } from '@proofmesh/shared-types';
 import { SKILLS } from '@proofmesh/shared-types';
 import { accountingFromEvidence, computeScore, progressFor, type DimensionSignals } from '@proofmesh/scoring-engine';
 import type { Store } from './store.js';
-import { deriveAttestationAddress } from './store.js';
+import { deriveCredentialPda, readAttestationFromRpc } from '@proofmesh/verifier-sdk';
 import type { AnalysisJob, EvidenceItem, SseEvent, SkillId } from '@proofmesh/shared-types';
+import { mintCredential } from './mint.js';
 
-const ISSUER_ADDRESS = 'ProofMeshIssuer111111111111111111111111111';
+/** Real wallet+skill PDA; falls back to a deterministic placeholder if the
+ * (rare) on-curve derivation throws. */
+async function derivePdaOr(wallet: string, skill: string): Promise<string> {
+  try {
+    const { address } = await deriveCredentialPda(wallet, skill);
+    return address;
+  } catch {
+    return `pending:${wallet.slice(0, 6)}:${skill}`;
+  }
+}
+
+const ISSUER_ADDRESS = '6TGUP796erCCpxhosXToA4YNv4dxwz1yc7rmTvZEYagZ';
 const CREDENTIAL_DAYS_VALID = 180;
 
 export function sha256Hash(input: string): string {
@@ -164,6 +176,8 @@ const score = computeScore({
     !blocked && score.passedEligibility && finalConfidence >= 0.6 && !needsWallet;
 
   let credentialId: string | null = null;
+  let attestationAddress: string | null = null;
+  let mintConfirmedOut = false;
   if (eligibilityPassed) {
     const issuedAt = new Date();
     const expiresAt = new Date(issuedAt.getTime() + CREDENTIAL_DAYS_VALID * 86_400_000);
@@ -179,7 +193,7 @@ const score = computeScore({
       developerId: job.developerId,
       wallet,
       skillId: job.skillId,
-      attestationAddress: deriveAttestationAddress(wallet, skill.schema),
+      attestationAddress: await derivePdaOr(wallet, job.skillId),
       issuerAddress: ISSUER_ADDRESS,
       schema: skill.schema,
       skillScore: Math.round(score.shownScore),
@@ -195,7 +209,50 @@ const score = computeScore({
     } as const;
     store.saveCredential(cred as never);
     credentialId = cred.id;
-    await advance('CREDENTIAL_CHECK', `Eligibility passed → SAS attestation ${cred.attestationAddress.slice(0, 8)}… minted (devnet).`);
+    let mintConfirmed = false;
+
+    // Real on-chain mint (Phase 1). If the keypair lacks funds or devnet is
+    // rate-limited, keep the deterministic in-memory credential so the SDK +
+    // verify page still work — it simply reports valid:false over RPC until a
+    // cred actually exists at the PDA. The pipeline NEVER fails for this.
+    try {
+      const mintLevel = (cred.level >= 1 ? cred.level : 1) as 1 | 2 | 3;
+      const rpcUrl = process.env.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com';
+      const exists = await readAttestationFromRpc({ wallet, skillId: job.skillId, rpcUrl });
+      if (exists) {
+        mintConfirmed = true;
+        await advance(
+          'CREDENTIAL_CHECK',
+          `Eligibility passed → on-chain credential already minted at ${cred.attestationAddress.slice(0, 8)}… (confirmed on devnet).`
+        );
+      } else {
+        await mintCredential(
+          {
+            wallet,
+            skill: job.skillId,
+            skillScore: cred.skillScore,
+            confidencePct: cred.confidencePercent,
+            level: mintLevel,
+            evidenceRoot: sha256Hash(evidenceRoot).slice(0, 64),
+            expiresAt: Math.floor(expiresAt.getTime() / 1000)
+          },
+          { skipConfirm: true }
+        );
+        const confirmed = await readAttestationFromRpc({ wallet, skillId: job.skillId, rpcUrl });
+        mintConfirmed = confirmed !== null;
+        await advance(
+          'CREDENTIAL_CHECK',
+          `Eligibility passed → on-chain credential at ${cred.attestationAddress.slice(0, 8)}… (${mintConfirmed ? 'confirmed on devnet' : 'tx sent, confirmation pending'} — ${job.skillId}).`
+        );
+      }
+    } catch (mintErr) {
+      await advance(
+        'CREDENTIAL_CHECK',
+        `Eligibility passed → credential registered off-chain (devnet mint pending: ${(mintErr as Error).message.slice(0, 60)}).`
+      );
+    }
+    attestationAddress = cred.attestationAddress;
+    mintConfirmedOut = mintConfirmed;
   } else {
     await advance(
       'CREDENTIAL_CHECK',
@@ -210,7 +267,7 @@ const score = computeScore({
   job.status = eligibilityPassed ? 'completed' : 'abstained';
   job.credentialId = credentialId;
   job.updatedAt = new Date().toISOString();
-  emit({ type: 'done', jobId: job.id, scoreId: score.id, credentialId });
+  emit({ type: 'done', jobId: job.id, scoreId: score.id, credentialId, attestationAddress, mintConfirmed: mintConfirmedOut });
 
   return {
     scoreId: score.id,

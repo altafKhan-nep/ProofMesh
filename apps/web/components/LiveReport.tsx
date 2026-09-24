@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react';
 import { dashboardFor, type DashboardData } from '../lib/api';
 import { ReportDashboard } from './ReportDashboard';
 
-const ALEXANDER_WALLET = '7xGqYtRZLJ4XZiQn69NCHsWkY1mTVMLqmLX4m3md8DwzF3';
+const ALEXANDER_WALLET = 'ZQqgH8VYSs5HYWCvL25cGpafy3aSnUeWPmSrY2nyEeF';
 
 /** Live deterministic telemetry — fetches the seeded attestation report from the API. */
 export function LiveReport() {

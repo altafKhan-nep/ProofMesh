@@ -11,10 +11,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@fastify/cors": "^10.0.2",
     "@proofmesh/scoring-engine": "workspace:*",
     "@proofmesh/shared-types": "workspace:*",
     "@proofmesh/verifier-sdk": "workspace:*",
-    "@fastify/cors": "^10.0.2",
+    "@solana/web3.js": "^1.99.0",
     "fastify": "^5.2.0"
   },
   "devDependencies": {

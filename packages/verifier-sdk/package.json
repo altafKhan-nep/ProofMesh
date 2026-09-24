@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@noble/curves": "^2.4.0",
     "@proofmesh/shared-types": "workspace:*"
   },
   "devDependencies": {

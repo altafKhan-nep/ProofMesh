@@ -229,18 +229,6 @@ function short(seed: string, n = 12): string {
   return out;
 }
 
-export function deriveAttestationAddress(wallet: string, schema: string): string {
-  const seed = `attestation:${schema}:${wallet}`;
-  let h = parseInt(sha256Hex(seed), 16);
-  let out = '';
-  for (let i = 0; i < 44; i++) {
-    out += ALPHA[h % ALPHA.length];
-    h = Math.imul(h, 0x85ebca6b) + 0xc2b2ae35;
-    h = (h % 0xffffffff) >>> 0;
-  }
-  return out;
-}
-
 function seed(store: Store): void {
   const now = Date.now();
   const iso = (daysAgo: number, hoursAgo = 0): string =>
@@ -276,7 +264,7 @@ function seed(store: Store): void {
   };
 
   // --------------------------------------------- DEV-1: strong → mints
-  const d1 = mkDeveloper('dev-1', 'alexander-vance', '7xGqYtRZLJ4XZiQn69NCHsWkY1mTVMLqmLX4m3md8DwzF3', 90, 700);
+  const d1 = mkDeveloper('dev-1', 'alexander-vance', 'ZQqgH8VYSs5HYWCvL25cGpafy3aSnUeWPmSrY2nyEeF', 90, 700);
   store.developers.set(d1.id, d1);
   store.repos.set(d1.id, coreRepos(d1.id, iso));
   store.evidence.set(d1.id, [
@@ -306,7 +294,7 @@ function seed(store: Store): void {
   ]);
 
   // --------------------------------------------- DEV-2: thin → abstains
-  const d2 = mkDeveloper('dev-2', 'sam-carter', 'A5k2m1BmVLLMdRUMhRui59sZbBcdXoDWnA4xUAVJaa8t', 12, 30);
+  const d2 = mkDeveloper('dev-2', 'sam-carter', 'BYDfcJoLfvbdBm4vvKcriLzyejGVtu1Xn5cqMCefsFrf', 12, 30);
   store.developers.set(d2.id, d2);
   store.repos.set(d2.id, [
     repo('dev-2', 'sam-carter', 'solana-hello-world', 'rust', false, 4, 3, 0, false, iso(8)),
@@ -318,7 +306,7 @@ function seed(store: Store): void {
   ]);
 
   // --------------------------------------------- DEV-3: mid → edge/abstain
-  const d3 = mkDeveloper('dev-3', 'maria-chen', '9zqWgKQaU1T8XKBK9wY3RmN6vC4tJ2pE8sLhF5dA7uG', 45, 400);
+  const d3 = mkDeveloper('dev-3', 'maria-chen', '6KnvFDgxpbN3fTAb7K6xZ97u1uWB67kYS5vBBHXGDo2P', 45, 400);
   store.developers.set(d3.id, d3);
   store.repos.set(d3.id, [
     repo('dev-3', 'maria-chen', 'typescript-library-kit', 'typescript', false, 45, 30, 14, true, iso(30)),
@@ -333,7 +321,7 @@ function seed(store: Store): void {
   ]);
 
   // --------------------------------------------- DEV-4: strong #2 (console)
-  const d4 = mkDeveloper('dev-4', 'devraj-patel', '4LnQzVcT7oJ9gXWsE2hR1dF6yB5kM3aP8tY2uWqZk', 200, 600);
+  const d4 = mkDeveloper('dev-4', 'devraj-patel', 'FPwGSQzYR7aU4AUuLDn2bDjdrzr5yHNeDQZBPgdkR4NH', 200, 600);
   store.developers.set(d4.id, d4);
   store.repos.set(d4.id, [
     repo('dev-4', 'project-serum', 'anchor', 'rust', false, 12800, 44, 30, true, iso(120)),

@@ -135,8 +135,8 @@ export function SpecSheet() {
             confidence={99.1}
             metricA={{ label: 'Code Integrity (4,218 commits)', pct: 98 }}
             metricB={{ label: 'Peer Review Dispersion', pct: 92 }}
-            walletTag="solana:7xGq...DwzF3"
-            href="/verify/7xGqYtRZLJ4XZiQn69NCHsWkY1mTVMLqmLX4m3md8DwzF3/solana-anchor"
+            walletTag="solana:ZQqgH...nyEeF"
+            href="/verify/ZQqgH8VYSs5HYWCvL25cGpafy3aSnUeWPmSrY2nyEeF/solana-anchor"
           />
         </div>
       </section>

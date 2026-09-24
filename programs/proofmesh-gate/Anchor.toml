@@ -1,0 +1,12 @@
+[toolchain]
+channel = "stable"
+
+[programs.devnet]
+proofmesh_gate = "8p8PNd75RdygjcmnvQMGW3U8Fr9AwgR21fSGSL7VBvAj"
+
+[provider]
+cluster = "devnet"
+wallet = "/Users/altafkhan/PROJECTS/Blockchain/ProofMesh/.secrets/proofmesh-devnet.json"
+
+[scripts]
+test = "yarn run ts-mocha -p ./tsconfig.json -t 1000000 tests/**/*.ts"

@@ -382,7 +382,7 @@ export type SseEvent =
   | { type: 'stage'; stage: PipelineStage; status: PipelineStageStatus['status']; detail: string }
   | { type: 'progress'; percent: number; detail: string }
   | { type: 'result'; scoreId: string; shownScore: number; confidence: number; passedEligibility: boolean }
-  | { type: 'done'; jobId: string; scoreId: string | null; credentialId: string | null }
+  | { type: 'done'; jobId: string; scoreId: string | null; credentialId: string | null; attestationAddress: string | null; mintConfirmed: boolean }
   | { type: 'error'; message: string };
 
 export interface EvidenceReport {

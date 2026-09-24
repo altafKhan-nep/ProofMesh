@@ -81,4 +81,97 @@ does not block, eligibility passes, and final confidence ≥ 0.6.
 | `devraj-patel` | solana-anchor | 79.67 | 0.7913 | 2 · Strong |
 | `maria-chen` | typescript | — | abstain | no credential |
 
-Wallet for the demo reporting page: `7xGqYtRZLJ4XZiQn69NCHsWkY1mTVMLqmLX4m3md8DwzF3`.# ProofMesh
+Wallet for the demo reporting page: `ZQqgH8VYSs5HYWCvL25cGpafy3aSnUeWPmSr2nyEeF`.
+
+## On-chain gate (Solana devnet program)
+
+The skill credential is minted at a **wallet + skill PDA** by the Anchor program
+`programs/proofmesh-gate` (`anchor-lang 0.30.1`). Deployment requires funding only the
+**issuer keypair** below; the program's own keypair is created implicitly by
+`solana program deploy` (a 0-SOL empty keypair is fine — its rent is paid by the issuer).
+
+| Role | Keypair | Address |
+| --- | --- | --- |
+| Issuer / authority (fund with SOL) | `.secrets/proofmesh-devnet.json` | `6TGUP796erCCpxhosXToA4YNv4dxwz1yc7rmTvZEYagZ` |
+| Program ID (deploys against this keypair) | `.secrets/proofmesh-gate-keypair.json` | `8p8PNd75RdygjcmnvQMGW3U8Fr9AwgR21fSGSL7VBvAj` |
+
+### Getting devnet SOL (one-time)
+
+The issuer must hold ~1 SOL to rent + deploy the program and pay mint fees:
+
+1. Open https://faucet.solana.com, sign in with GitHub (any account).
+2. Wallet address: paste `6TGUP796erCCpxhosXToA4YNv4dxwz1yc7rmTvZEYagZ`.
+3. Amount: **2 SOL** (faucet only supports 2; more than enough for rent + deploy + ~100 mints).
+4. Solve the CAPTCHA and submit. Confirmation renders an on-chain link in ~30 s.
+5. Verify:
+
+   ```bash
+   export PATH="/tmp/solana-install/solana-release/bin:$PATH"
+   solana balance 6TGUP796erCCpxhosXToA4YNv4dxwz1yc7rmTvZEYagZ --url devnet
+   # expect: 2 SOL
+   ```
+
+   (Works with any installed solana CLI; `--url devnet` is the only requirement.)
+
+### Building the program (SBF target)
+
+The `proofmesh-gate` crate is pinned to crates that the **legacy SBF toolchain**
+(platform-tools v1.41 → rustc 1.75) can build. `cargo +solana` requires the rustup proxy to
+precede platform-tools' own `cargo` on `PATH`:
+
+```bash
+# one-time toolchain (if not already present)
+#   solana 1.18.20 release  → /tmp/solana-install/solana-release (cargo-build-sbf 1.18.20)
+#   platform-tools v1.41    → ~/.cache/solana/v1.41/platform-tools
+#   rustup toolchain solana → ~/.rustup/toolchains/solana  (cargo 1.75.0)
+
+cd programs/proofmesh-gate
+export PATH="/tmp/solana-install/solana-release/bin:$HOME/.cargo/bin:$PATH"   # rustup proxy BEFORE platform-tools
+rm -f Cargo.lock
+cargo +solana generate-lockfile      # native v3 lock, all crates edition-2021 / MSRV ≤ 1.75
+
+cargo-build-sbf --manifest-path Cargo.toml \
+  --sbf-sdk /tmp/solana-install/solana-release/bin/sdk/sbf
+# → target/deploy/proofmesh_gate.so (eBPF ELF, 64-bit LSB shared object)
+
+file target/deploy/proofmesh_gate.so   # ELF 64-bit LSB shared object, eBPF
+```
+
+**Why the pins?** `Cargo.toml` forces a coherent pre-edition-2024 dependency set, because the
+SBF-incompatible crates would otherwise resolve to builds that rustc 1.75 cannot compile:
+
+- `borsh =1.2.1` — avoids `proc-macro-crate 3` → `toml_edit 0.25` (edition 2024)
+- `blake3 =1.7.0` — stays on `digest 0.10`; newer blake3 balloons to `digest 0.11` (edition 2024)
+- `zeroize =1.3.0` / `zeroize_derive =1.4.2` — `curve25519-dalek 3.2.1` only allows `zeroize <1.4`
+- `jobserver =0.1.32` / `getrandom =0.2.17` — 0.1.33+/0.4.x need newer rustc/std
+- `indexmap =2.11.4` — 2.13+ raised MSRV past 1.75; 2.14 is edition 2024
+- `unicode-segmentation =1.12.0` — `heck 0.3.3` leaves it unconstrained; 1.13 needs rustc 1.85
+
+If `cargo +solana generate-lockfile` picks a crate whose manifest fails to parse under rustc 1.75,
+pin its newest safe version the same way and regenerate.
+
+### Deploying
+
+```bash
+cd programs/proofmesh-gate
+export PATH="/tmp/solana-install/solana-release/bin:$PATH"
+
+solana program deploy \
+  --program-id ../../.secrets/proofmesh-gate-keypair.json \
+  --keypair ../../.secrets/proofmesh-devnet.json \
+  --url devnet \
+  target/deploy/proofmesh_gate.so
+```
+
+On success you'll see `Program Id: 8p8PNd75RdygjcmnvQMGW3U8Fr9AwgR21fSGSL7VBvAj`.
+
+If deploy fails with `Attempt to debit an account but found no record of a prior credit`, the
+issuer is unfunded — repeat the faucet step above.
+
+### After deploy
+
+1. Restart the API so minting uses the now-funded issuer:
+   `lsof -ti :4000 | xargs kill -9 ; pnpm dev --filter @proofmesh/api`
+2. Run a verify flow (see `pnpm dev`) and the `done` SSE event should report
+   `mintConfirmed: true` with a real `attestationAddress` (the wallet+skill PDA).
+3. Gate check: `packages/verifier-sdk` `verify()` against real devnet RPC returns `valid: true`.

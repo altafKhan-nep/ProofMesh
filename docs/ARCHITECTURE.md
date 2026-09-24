@@ -68,7 +68,7 @@ Real work (bounty paid to the same wallet) → new evidence → stronger credent
                                             ▼                                     ▼
                           Solana Attestation Service (SAS) ◄──────────────────────┘
                                             │
-              ┌─────────────────────────────┼─────────────────────────────┐
+                  
               ▼                             ▼                             ▼
      Verifier SDK (TS, RPC-only)   MCP server (read-only tools)   On-chain gate program (Anchor)
 ```

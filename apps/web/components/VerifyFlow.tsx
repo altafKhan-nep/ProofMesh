@@ -11,7 +11,14 @@ type StageState = { stage: PipelineStage; status: string; detail: string };
 type RunState =
   | { kind: 'idle' }
   | { kind: 'running'; jobId: string; note: string }
-  | { kind: 'done'; jobId: string; credentialId: string | null; scoreId: string | null }
+  | {
+      kind: 'done';
+      jobId: string;
+      credentialId: string | null;
+      scoreId: string | null;
+      attestationAddress: string | null;
+      mintConfirmed: boolean;
+    }
   | { kind: 'error'; message: string };
 
 const WALLET_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
@@ -75,7 +82,14 @@ export function VerifyFlow() {
         setResultStats({ shownScore: ev.shownScore, confidence: ev.confidence });
         break;
       case 'done':
-        setRun({ kind: 'done', jobId: ev.jobId, credentialId: ev.credentialId, scoreId: ev.scoreId });
+        setRun({
+          kind: 'done',
+          jobId: ev.jobId,
+          credentialId: ev.credentialId,
+          scoreId: ev.scoreId,
+          attestationAddress: ev.attestationAddress,
+          mintConfirmed: ev.mintConfirmed
+        });
         setProgress(null);
         break;
       case 'error':
@@ -241,7 +255,9 @@ export function VerifyFlow() {
                   <svg className="w-5 h-5 text-primary-container" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2.5">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" />
                   </svg>
-                  <span className="font-headline-sm text-[18px] font-semibold text-badge-green-text">Credential minted on-chain</span>
+                  <span className="font-headline-sm text-[18px] font-semibold text-badge-green-text">
+                    {run.mintConfirmed ? 'Credential minted on-chain' : 'Credential issued (on-chain mint pending)'}
+                  </span>
                 </div>
                 <p className="font-label-code text-xs text-badge-green-text mb-4">
                   {resultStats
@@ -249,6 +265,28 @@ export function VerifyFlow() {
                     : 'Deterministic attestation issued.'}{' '}
                   <span className="select-all">{run.credentialId}</span>
                 </p>
+                {run.attestationAddress && (
+                  <div className="mb-4 p-3 rounded-lg bg-surface-container-low border border-border-subtle font-label-code text-[11px] text-text-muted">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="text-text-secondary">
+                        PDA: <span className="select-all text-badge-green-text">{run.attestationAddress}</span>
+                      </span>
+                      <a
+                        href={`https://explorer.solana.com/address/${run.attestationAddress}?cluster=devnet`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="font-label-mono-tag text-[10px] px-2 py-1 rounded border border-border-subtle text-text-muted hover:text-primary-container hover:border-primary-container/40 transition-colors whitespace-nowrap"
+                      >
+                        EXPLORER ↗
+                      </a>
+                    </div>
+                    {!run.mintConfirmed && (
+                      <p className="mt-1.5 text-text-muted/70">
+                        Devnet mint pending (issuer funding). Credential is already registered off-chain — RPC will show valid:false until the on-chain record lands.
+                      </p>
+                    )}
+                  </div>
+                )}
                 {wallet && (
                   <Link
                     href={`/verify/${wallet}/${skill}`}

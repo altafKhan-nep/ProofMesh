@@ -38,7 +38,7 @@ export default function VerifyPage() {
               alt="ProofMesh credential badge"
               width={320}
               height={96}
-              src={`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'}/api/badge/7xGqYtRZLJ4XZiQn69NCHsWkY1mTVMLqmLX4m3md8DwzF3/solana-anchor.svg`}
+              src={`${process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000'}/api/badge/ZQqgH8VYSs5HYWCvL25cGpafy3aSnUeWPmSrY2nyEeF/solana-anchor.svg`}
               className="rounded-lg border border-border-subtle bg-surface-card"
             />
           </div>

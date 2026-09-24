@@ -8,6 +8,33 @@
  */
 
 import type { VerifyResult, VerifierOptions, SkillId } from '@proofmesh/shared-types';
+import {
+  deriveCredentialPda,
+  LAYOUT,
+  bytesToPubkey,
+  toBase58,
+  STATUS_ISSUED,
+  STATUS_EXPIRED,
+  STATUS_REVOKED,
+} from './layout.js';
+
+export {
+  deriveCredentialPda,
+  findProgramAddress,
+  isOnCurve,
+  fromBase58,
+  toBase58,
+  bytesToPubkey,
+  pubkeyToBytes,
+  PROGRAM_ID,
+  SEED_PREFIX,
+  CREDENTIAL_DISCRIMINATOR,
+  TOTAL_ACCOUNT_LEN,
+  LAYOUT,
+  STATUS_ISSUED,
+  STATUS_EXPIRED,
+  STATUS_REVOKED,
+} from './layout.js';
 
 export interface ParsedAttestation {
   /** base58 pubkey of the SAS attestation account (PDA) */
@@ -181,135 +208,92 @@ export async function verify(
 }
 
 // ---------------------------------------------------------------------------
-// RPC adapter. To keep this package dependency-light and buildable offline,
-// the JSON envelope mirrors what the SAS SDK returns; a live `@solana/web3.js`
-// fetch can be swapped in transparently via `readAttestation`.
-// ---------------------------------------------------------------------------
-
-// ---------------------------------------------------------------------------
 // RPC adapter. Queries a Solana RPC endpoint (default devnet) via JSON-RPC for
-// the derived SAS attestation account. Kept dependency-light (global fetch),
+// the derived PDA, then parses the fixed binary layout that the Anchor
+// proofmesh-gate program wrote at mint time. Dependency-light (global fetch);
 // offline-testable by injecting a fake reader. If no account exists at the
-// derived address — the honest truth for any non-minted credential — it returns
+// derived PDA — the honest truth for any non-minted credential — it returns
 // null and `verify` reports `valid:false`, exactly as an on-chain consumer must.
 //
-// Layout note: matches the SAS v1 attestation account serialization
-// (schema: string, skill_score: u32, confidence_percent: u32, level: u8).
-// A production reader should pin the program ABI; this keeps the same
-// read path exercisable without a program ID dependency in the SDK.
+// PDA + ABI come from ./layout.ts, kept in lock-step with
+// programs/proofmesh-gate/src/lib.rs.
 // ---------------------------------------------------------------------------
 
 const DEVNET_RPC = 'https://api.devnet.solana.com';
 
-function bufToU32(data: Buffer, off: number): number {
-  return data.readUInt32LE(off);
+function readU32LE(bytes: Uint8Array, off: number): number {
+  return (
+    (bytes[off] ?? 0) |
+    ((bytes[off + 1] ?? 0) << 8) |
+    ((bytes[off + 2] ?? 0) << 16) |
+    ((bytes[off + 3] ?? 0) << 24)
+  ) >>> 0;
 }
 
-const B58_ALPHA = '123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz';
-
-function toBase58(bytes: Uint8Array): string {
-  let out = '';
-  let zeroes = 0;
-  const len = bytes.length;
-  for (; zeroes < len && bytes[zeroes] === 0; zeroes += 1);
-  let x = Uint8Array.from(bytes);
-  while (x.length > 0 && (x[0] !== 0 || x.length !== 1)) {
-    let remainder = 0;
-    const next: number[] = [];
-    for (const byte of x) {
-      const acc = remainder * 256 + byte;
-      next.push(Math.floor(acc / 58));
-      remainder = acc % 58;
-    }
-    out = B58_ALPHA[remainder] + out;
-    let i = 0;
-    while (i < next.length && next[i] === 0) i += 1;
-    x = Uint8Array.from(next.slice(i));
-  }
-  while (zeroes-- > 0) out = '1' + out;
-  return out;
+function readI64LE(bytes: Uint8Array, off: number): number {
+  // Fits safely within Number until 2^53; unix seconds through 2050 are fine.
+  const lo = readU32LE(bytes, off);
+  const hi = readU32LE(bytes, off + 4);
+  return lo + hi * 2 ** 32;
 }
 
-function tryParseAttestation(data: Uint8Array): ParsedAttestation | null {
-  // Expect: a JSON {schema,skillScore,confidencePercent,level,..} blob OR the
-  // v1 borsh-ish layout. To stay dependency-light we attempt the JSON envelope
-  // first (our proof-of-concept stores JSON), else fall through.
-  try {
-    const utf8 = Buffer.from(data).toString('utf8');
-    const obj = JSON.parse(utf8) as {
-      schema?: string;
-      skillScore?: number;
-      confidencePercent?: number;
-      level?: number;
-      issuerAddress?: string;
-      expiresAt?: string;
-      status?: string;
-    };
-    if (obj.schema && typeof obj.skillScore === 'number') {
-      return {
-        attestationAddress: '',
-        wallet: '',
-        skillId: obj.schema,
-        skillLabel: obj.schema,
-        skillScore: obj.skillScore,
-        confidencePercent: obj.confidencePercent ?? 0,
-        level: (obj.level as 0 | 1 | 2 | 3) ?? 0,
-        issuerAddress: obj.issuerAddress ?? '',
-        schema: obj.schema,
-        analyzerVersion: 'rpc.v1',
-        evidenceRoot: '',
-        issuedAt: '',
-        expiresAt: obj.expiresAt ?? new Date(0).toISOString(),
-        status: (obj.status === 'EXPIRED' || obj.status === 'REVOKED' ? obj.status : 'ISSUED') as ParsedAttestation['status']
-      };
-    }
-  } catch {
-    /* not JSON — fall through */
-  }
-  try {
-    const buf = Buffer.from(data);
-    if (buf.length < 16) return null;
-    const schemaLen = buf.readUInt32LE(0);
-    if (schemaLen <= 0 || schemaLen > 64 || 8 + schemaLen + 12 > buf.length) return null;
-    const schema = buf.toString('utf8', 4, 4 + schemaLen);
-    const skillScore = bufToU32(buf, 4 + schemaLen + 4);
-    const confidencePercent = bufToU32(buf, 4 + schemaLen + 8) % 101;
-    const level = buf[4 + schemaLen + 12] as 0 | 1 | 2 | 3;
-    return {
-      attestationAddress: '',
-      wallet: '',
-      skillId: schema,
-      skillLabel: schema,
-      skillScore,
-      confidencePercent,
-      level,
-      issuerAddress: '',
-      schema,
-      analyzerVersion: 'rpc.v1',
-      evidenceRoot: '',
-      issuedAt: '',
-      expiresAt: new Date(0).toISOString(),
-      status: 'ISSUED'
-    };
-  } catch {
-    return null;
-  }
+function toFixedString(bytes: Uint8Array, off: number, len: number): string {
+  let end = off;
+  const max = off + len;
+  while (end < max && bytes[end] !== 0) end += 1;
+  return Buffer.from(bytes.slice(off, end)).toString('utf8');
 }
 
-async function rpcRead(
-  args: { wallet: string; skillId: string; rpcUrl: string }
-): Promise<ParsedAttestation | null> {
+/** Parse the fixed binary Credential account (post-discriminator). */
+export function parseCredentialLayout(
+  data: Uint8Array,
+  pda: string
+): ParsedAttestation | null {
+  if (data.length < LAYOUT.structLen) return null;
+  const off = LAYOUT;
+  const rawStatus = data[off.statusOffset] ?? 0;
+  const status: ParsedAttestation['status'] =
+    rawStatus === STATUS_EXPIRED
+      ? 'EXPIRED'
+      : rawStatus === STATUS_REVOKED
+        ? 'REVOKED'
+        : 'ISSUED';
+  const wallet = bytesToPubkey(data.slice(off.walletOffset, off.walletOffset + 32));
+  const skillId = toFixedString(data, off.schemaOffset, 32);
+  const score = data[off.skillScoreOffset] ?? 0;
+  const confidencePct = data[off.confidencePctOffset] ?? 0;
+  const level = (data[off.levelOffset] ?? 0) as 0 | 1 | 2 | 3;
+  const issuedAt = readI64LE(data, off.issuedAtOffset);
+  const expiresAt = readI64LE(data, off.expiresAtOffset);
+  const authority = bytesToPubkey(data.slice(off.authorityOffset, off.authorityOffset + 32));
+  const rootBytes = data.slice(off.evidenceRootOffset, off.evidenceRootOffset + 32);
+  const analyzer = toFixedString(data, off.analyzerOffset, 16);
+
+  return {
+    attestationAddress: pda,
+    wallet,
+    skillId,
+    skillLabel: skillId,
+    skillScore: score,
+    confidencePercent: confidencePct,
+    level,
+    issuerAddress: authority,
+    schema: skillId,
+    analyzerVersion: analyzer || 'pow-analyzer',
+    evidenceRoot: toBase58(rootBytes),
+    issuedAt: new Date(issuedAt * 1000).toISOString(),
+    expiresAt: new Date(expiresAt * 1000).toISOString(),
+    status,
+  };
+}
+
+async function rpcRead(args: {
+  wallet: string;
+  skillId: string;
+  rpcUrl: string;
+}): Promise<ParsedAttestation | null> {
   const rpc = args.rpcUrl || DEVNET_RPC;
-  const program = 'ProofMeshAttestationProgram11111111111111111111111111';
-  const seed = `${args.skillId}:${args.wallet}`;
-  // Minimal deterministic PDA derivation mirroring the issuer (no ed25519 dep):
-  // bytes of seed with the program id appended, hashed with a vanilla sha256.
-  const input = Buffer.concat([
-    Buffer.from(seed),
-    Buffer.from(program)
-  ]);
-  const hash = await crypto.subtle.digest('SHA-256', input);
-  const address = toBase58(new Uint8Array(hash)).slice(0, 44);
+  const { address } = await deriveCredentialPda(args.wallet, args.skillId);
 
   const res = await fetch(rpc, {
     method: 'POST',
@@ -341,9 +325,9 @@ async function rpcRead(
   }
   if (!raw || raw.length === 0) return null;
 
-  const parsed = tryParseAttestation(raw);
+  // Skip the 8-byte Anchor account discriminator.
+  const parsed = parseCredentialLayout(raw.subarray(8), address);
   if (!parsed) return null;
-  parsed.attestationAddress = address;
   parsed.wallet = args.wallet;
   parsed.skillId = args.skillId;
   parsed.skillLabel = args.skillId;

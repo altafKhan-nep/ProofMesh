@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import type { SseEvent } from '@proofmesh/shared-types';
 import { SKILLS, LEVEL_INFO } from '@proofmesh/shared-types';
-import { validateAttestationRecord } from '@proofmesh/verifier-sdk';
+import { validateAttestationRecord, deriveCredentialPda } from '@proofmesh/verifier-sdk';
 import type { Store } from './store.js';
 import { runAnalysis } from './pipeline.js';
 import { hydrateSeededRuns } from './hydrate.js';
@@ -225,6 +225,10 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
       return reply.code(404).send({ valid: false, reason: 'credential_not_found', wallet, skillId });
     }
 
+    // Authoritative on-chain PDA (deterministic from wallet + skill) — the
+    // stored attestationAddress may predate an SDK derivation fix.
+    const pda = await deriveCredentialPda(wallet, skillId);
+
     // Constraint-check through the shared SDK logic (RPC-grade, Off-chain mirror).
     const grade = validateAttestationRecord(
       {
@@ -253,6 +257,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
           issuerAddress: credential.issuerAddress,
           schema: credential.schema,
           analyzerVersion: credential.analyzerVersion,
+          attestationAddress: pda.address,
           evidenceRoot: credential.evidenceRoot,
           reportUri: credential.reportUri,
           dev: { handle: dev.githubHandle, githubUsername: dev.githubUsername, avatarUrl: dev.avatarUrl },
