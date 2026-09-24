@@ -1,6 +1,6 @@
 {
   "round": 1,
-  "generatedAt": "2026-09-24T14:59:09.207Z",
+  "generatedAt": "2026-09-24T15:13:33.183Z",
   "method": "live GitHub ingestion (DEEP mode: /users/:u/repos + /users/:u/events/public + per-repo commits/releases for the 6 most recently pushed owned repos). Prediction via pipeline.predictCredential — the exact production path, no re-simulation.",
   "mode": {
     "ingestion": "deep",
@@ -8,9 +8,11 @@
     "tokenized": true
   },
   "budget": {
-    "limit": "tokenized 5000/hr",
-    "configured": 2500,
-    "used": 1
+    "limit": "unauthenticated 60/hr",
+    "configured": 600,
+    "used": 0,
+    "profilesFetched": 0,
+    "profilesFromCache": 61
   },
   "labels": {
     "total": 61,
@@ -18,28 +20,23 @@
     "negatives": 36
   },
   "summary": {
-    "covered": 60,
+    "covered": 61,
     "total": 61,
-    "failedIngestion": 1,
-    "failedHandles": [
-      {
-        "handle": "trentsol",
-        "error": "github_user_not_found"
-      }
-    ],
+    "failedIngestion": 0,
+    "failedHandles": [],
     "confusion": {
       "tp": 1,
       "fp": 0,
       "tn": 36,
-      "fn": 23
+      "fn": 24
     },
     "precision": 1,
-    "recall": 0.0417,
-    "accuracy": 0.6167,
-    "f1": 0.0801,
+    "recall": 0.04,
+    "accuracy": 0.6066,
+    "f1": 0.0769,
     "note": "positive = credential SHOULD be issued. Rows with ingestion errors are excluded from the confusion matrix, never counted as correct abstentions."
   },
-  "conclusion": "1 label(s) failed ingestion (trentsol:github_user_not_found) and are excluded from the metrics rather than counted as abstentions. Issued 1/60 (1 of 24 positives) — precision 1, recall 0.0417. Deep ingest (6 repos/account: tree test-file density, head-commit CI + signature, release history, archival survival, portfolio push-month continuity) lifts evidence volume — E rose from ~8.5 to 18 max — and the strongest maintainers now clear the bar, so the binding constraint is the shown>=60 gate itself, not evidence volume. Separation check: 29 negatives clear conf>=0.6 (max shown 60.6), while 16 positives do and 1 of them reach shown>=60. Precision/recall at the gate is therefore a product-threshold decision, not a data gap.",
+  "conclusion": "Issued 1/61 (1 of 25 positives) — precision 1, recall 0.04. Deep ingest (6 repos/account: tree test-file density, head-commit CI + signature, release history, archival survival, portfolio push-month continuity) lifts evidence volume — E rose from ~8.5 to 18 max — and the strongest maintainers now clear the bar, so the binding constraint is the shown>=60 gate itself, not evidence volume. Separation check: 29 negatives clear conf>=0.6 (max shown 60.6), while 16 positives do and 1 of them reach shown>=60. Precision/recall at the gate is therefore a product-threshold decision, not a data gap.",
   "gateSweep": {
     "method": "sweep the shown-score issuance gate over INDIVIDUAL accounts only (org/bot accounts are excluded by the account-type eligibility rule); confidence>=0.6 and skeptic gate held fixed",
     "basis": {
@@ -636,6 +633,470 @@
       }
     ]
   },
+  "tuning": {
+    "method": "sweep E0 over the SAME per-account evidence units, holding shownScore>=60 and confidence>=0.6; other constants fixed",
+    "basis": "high-confidence labels only",
+    "best": {
+      "e0": 60,
+      "acc": 0.6078,
+      "tp": 1,
+      "fp": 0,
+      "tn": 30,
+      "fn": 20
+    },
+    "current": {
+      "e0": 30
+    },
+    "curve": [
+      {
+        "e0": 2,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 4,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 6,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 8,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 10,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 12,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 14,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 16,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 18,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 20,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 22,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 24,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 26,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 28,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 30,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 32,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 34,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 36,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 38,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 40,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 42,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 44,
+        "acc": 0.5686,
+        "tp": 1,
+        "fp": 2,
+        "tn": 28,
+        "fn": 20
+      },
+      {
+        "e0": 46,
+        "acc": 0.6078,
+        "tp": 1,
+        "fp": 0,
+        "tn": 30,
+        "fn": 20
+      },
+      {
+        "e0": 48,
+        "acc": 0.6078,
+        "tp": 1,
+        "fp": 0,
+        "tn": 30,
+        "fn": 20
+      },
+      {
+        "e0": 50,
+        "acc": 0.6078,
+        "tp": 1,
+        "fp": 0,
+        "tn": 30,
+        "fn": 20
+      },
+      {
+        "e0": 52,
+        "acc": 0.6078,
+        "tp": 1,
+        "fp": 0,
+        "tn": 30,
+        "fn": 20
+      },
+      {
+        "e0": 54,
+        "acc": 0.6078,
+        "tp": 1,
+        "fp": 0,
+        "tn": 30,
+        "fn": 20
+      },
+      {
+        "e0": 56,
+        "acc": 0.6078,
+        "tp": 1,
+        "fp": 0,
+        "tn": 30,
+        "fn": 20
+      },
+      {
+        "e0": 58,
+        "acc": 0.6078,
+        "tp": 1,
+        "fp": 0,
+        "tn": 30,
+        "fn": 20
+      },
+      {
+        "e0": 60,
+        "acc": 0.6078,
+        "tp": 1,
+        "fp": 0,
+        "tn": 30,
+        "fn": 20
+      },
+      {
+        "e0": 62,
+        "acc": 0.5882,
+        "tp": 0,
+        "fp": 0,
+        "tn": 30,
+        "fn": 21
+      },
+      {
+        "e0": 64,
+        "acc": 0.5882,
+        "tp": 0,
+        "fp": 0,
+        "tn": 30,
+        "fn": 21
+      },
+      {
+        "e0": 66,
+        "acc": 0.5882,
+        "tp": 0,
+        "fp": 0,
+        "tn": 30,
+        "fn": 21
+      },
+      {
+        "e0": 68,
+        "acc": 0.5882,
+        "tp": 0,
+        "fp": 0,
+        "tn": 30,
+        "fn": 21
+      },
+      {
+        "e0": 70,
+        "acc": 0.5882,
+        "tp": 0,
+        "fp": 0,
+        "tn": 30,
+        "fn": 21
+      },
+      {
+        "e0": 72,
+        "acc": 0.5882,
+        "tp": 0,
+        "fp": 0,
+        "tn": 30,
+        "fn": 21
+      },
+      {
+        "e0": 74,
+        "acc": 0.5882,
+        "tp": 0,
+        "fp": 0,
+        "tn": 30,
+        "fn": 21
+      },
+      {
+        "e0": 76,
+        "acc": 0.5882,
+        "tp": 0,
+        "fp": 0,
+        "tn": 30,
+        "fn": 21
+      },
+      {
+        "e0": 78,
+        "acc": 0.5882,
+        "tp": 0,
+        "fp": 0,
+        "tn": 30,
+        "fn": 21
+      },
+      {
+        "e0": 80,
+        "acc": 0.5882,
+        "tp": 0,
+        "fp": 0,
+        "tn": 30,
+        "fn": 21
+      }
+    ]
+  },
+  "corpusProposal": {
+    "method": "percentiles ($bins) of label-positive normalized signals, n=25",
+    "currentDefault": {
+      "quality": [
+        58,
+        62,
+        66,
+        70,
+        74,
+        78,
+        82,
+        86,
+        90,
+        94
+      ],
+      "security": [
+        55,
+        60,
+        65,
+        70,
+        75,
+        80,
+        85,
+        90,
+        94,
+        97
+      ],
+      "architecture": [
+        50,
+        58,
+        64,
+        70,
+        76,
+        82,
+        87,
+        91,
+        95,
+        98
+      ],
+      "testing": [
+        40,
+        50,
+        60,
+        68,
+        75,
+        82,
+        88,
+        92,
+        96,
+        99
+      ],
+      "consistency": [
+        45,
+        55,
+        63,
+        70,
+        76,
+        82,
+        87,
+        91,
+        95,
+        98
+      ],
+      "traction": [
+        13,
+        22,
+        30,
+        36,
+        43,
+        50,
+        58,
+        67,
+        77,
+        87
+      ]
+    },
+    "proposed": {
+      "quality": [
+        86.5,
+        87,
+        87.5,
+        87.5,
+        87.5,
+        87.5
+      ],
+      "security": [
+        60,
+        73.33,
+        82.67,
+        93.33,
+        93.33,
+        98.67
+      ],
+      "architecture": [
+        41.9,
+        45.9,
+        49.5,
+        51.9,
+        51.9,
+        51.9
+      ],
+      "testing": [
+        16.25,
+        28.97,
+        49.17,
+        69.83,
+        74.67,
+        83.4
+      ],
+      "consistency": [
+        21.67,
+        39.63,
+        59.82,
+        66.5,
+        82.75,
+        84.42
+      ],
+      "traction": [
+        57.2,
+        65.21,
+        86.81,
+        95.42,
+        98.89,
+        100.97
+      ]
+    }
+  },
   "discrepancies": [
     "sindresorhus (typescript): POS→abstain — score=43.42 conf=73.1% cov=92% E=10.5",
     "kentcdodds (typescript): POS→abstain — score=58.03 conf=75.0% cov=90% E=17",
@@ -656,7 +1117,7 @@
     "nikomatsakis (solana-anchor): POS→abstain — score=36.7 conf=50.6% cov=33% E=6.5",
     "aeyakovenko (solana-anchor): POS→abstain — score=40.85 conf=49.7% cov=42% E=5.5",
     "mvines (solana-anchor): POS→abstain — score=42.15 conf=21.3% cov=31% E=3",
-    "trentsol (solana-anchor): POS→abstain — score=0 conf=0.0% cov=0% E=0",
+    "jstarry (solana-anchor): POS→abstain — score=42.17 conf=34.4% cov=69% E=4",
     "danenbm (solana-anchor): POS→abstain — score=44.89 conf=12.1% cov=11% E=1.5",
     "cowtowncoder (java): POS→abstain — score=42.08 conf=43.0% cov=83% E=4.5",
     "joshlong (java): POS→abstain — score=35.93 conf=60.4% cov=57% E=8.5",
@@ -1350,27 +1811,38 @@
       "covered": true
     },
     {
-      "handle": "trentsol",
+      "handle": "jstarry",
       "skill": "solana-anchor",
       "label": true,
       "labelConfidence": "high",
-      "rationale": "Solana ecosystem; long Rust history.",
+      "rationale": "Solana core engineer (Agave); sustained Rust validator/client work.",
       "predicted": false,
       "match": false,
-      "shownScore": 0,
-      "rawScore": 0,
-      "confidence": 0,
-      "evidenceUnits": 0,
+      "shownScore": 42.17,
+      "rawScore": 30.1,
+      "confidence": 0.3435,
+      "evidenceUnits": 4,
       "level": 0,
       "blocked": false,
-      "languageCoverage": 0,
+      "languageCoverage": 0.6923076923076923,
       "externalMerges": 0,
       "activityMonths": 0,
-      "repos": 0,
-      "normalizedSignals": null,
-      "skepticNotes": [],
-      "eligibilityReasons": [],
-      "error": "github_user_not_found",
+      "repos": 13,
+      "normalizedSignals": {
+        "quality": 87.5,
+        "security": 80,
+        "architecture": 41.900000000000006,
+        "testing": 16.25,
+        "consistency": 12.5,
+        "traction": 30.63
+      },
+      "skepticNotes": [
+        "fork-dominant history detected (≤ verify upstream lineage)"
+      ],
+      "eligibilityReasons": [
+        "Confidence 39.4% below the 60% issuance threshold."
+      ],
+      "accountType": "User",
       "covered": true
     },
     {

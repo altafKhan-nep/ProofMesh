@@ -54,7 +54,9 @@ export const LABELS: BacktestLabel[] = [
   // ---- Solana core engineers (rust → solana-anchor) -----------------------
   { handle: 'aeyakovenko', skill: 'solana-anchor', positive: true, confidence: 'high', rationale: 'Solana co-founder; deep Rust validator work.' },
   { handle: 'mvines', skill: 'solana-anchor', positive: true, confidence: 'high', rationale: 'Solana Labs; sustained Rust protocol work.' },
-  { handle: 'trentsol', skill: 'solana-anchor', positive: true, confidence: 'high', rationale: 'Solana ecosystem; long Rust history.' },
+  // Replaces a phantom label (`trentsol`) that 404s — the round-3 integrity fix
+  // flagged it, and an un-ingestable account can never be a validation row.
+  { handle: 'jstarry', skill: 'solana-anchor', positive: true, confidence: 'high', rationale: 'Solana core engineer (Agave); sustained Rust validator/client work.' },
   { handle: 'danenbm', skill: 'solana-anchor', positive: true, confidence: 'provisional', rationale: 'Solana Labs; real Rust work but moderate public volume.' },
 
   // ---- Java maintainers (positive) ----------------------------------------

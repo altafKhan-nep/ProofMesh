@@ -39,14 +39,26 @@ import type { DimensionSignals } from '@proofmesh/scoring-engine';
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** Per-repo detail fetches (commits + releases). 0 = fast mode (2 req/account). */
 const DETAIL_REPOS = Number(process.env.BACKTEST_DETAIL_REPOS ?? 0);
-/** Deep mode needs the raised rate limit; fail fast instead of half-ingesting. */
-if (DETAIL_REPOS > 0 && !process.env.GITHUB_TOKEN) {
-  console.error('BACKTEST_DETAIL_REPOS>0 requires GITHUB_TOKEN (60/hr unauthenticated cannot cover deep fetches).');
-  process.exit(2);
-}
 /** Deep snapshots are cached beside (never over) the flat fast-mode cache. */
 const CACHE_DIR = path.join(HERE, DETAIL_REPOS > 0 ? `cache-deep${DETAIL_REPOS}` : 'cache');
 const OUT_PATH = path.resolve(HERE, '../../../..', 'docs/backtest-round-1.json');
+
+const cacheFileFor = (handle: string): string => path.join(CACHE_DIR, `${handle.toLowerCase()}.json`);
+
+/**
+ * Deep mode needs the raised rate limit, but only for accounts that are not
+ * already cached: a fully-cached re-run issues no GitHub requests at all, so it
+ * must work without a token (that is the point of the on-disk cache).
+ */
+const uncachedLabels = LABELS.filter((l) => !fs.existsSync(cacheFileFor(l.handle)));
+if (DETAIL_REPOS > 0 && !process.env.GITHUB_TOKEN && uncachedLabels.length > 0) {
+  console.error(
+    `BACKTEST_DETAIL_REPOS>0 needs GITHUB_TOKEN: ${uncachedLabels.length}/${LABELS.length} profiles are not cached ` +
+      `(e.g. ${uncachedLabels.slice(0, 5).map((l) => l.handle).join(', ')}). Unauthenticated GitHub is 60/hr and ` +
+      `cannot cover deep fetches. Re-run with a token, or without BACKTEST_DETAIL_REPOS for the 2-request fast scan.`
+  );
+  process.exit(2);
+}
 
 const BUDGET = Number(process.env.BACKTEST_BUDGET ?? (DETAIL_REPOS > 0 ? 600 : 58));
 const TUNE = process.argv.includes('--tune');
@@ -222,7 +234,7 @@ function proposeCorpus(rows: RunRow[]): Record<string, unknown> {
 }
 
 async function scoreHandle(label: BacktestLabel, store: Store): Promise<RunRow> {
-  const cacheFile = path.join(CACHE_DIR, `${label.handle.toLowerCase()}.json`);
+  const cacheFile = cacheFileFor(label.handle);
   let ingested: IngestedDeveloper;
   if (fs.existsSync(cacheFile)) {
     ingested = JSON.parse(fs.readFileSync(cacheFile, 'utf8')) as IngestedDeveloper;
@@ -412,15 +424,21 @@ async function main(): Promise<void> {
     rows.push(await scoreHandle(label, store));
     if (!rows[rows.length - 1]!.covered) break; // budget exhausted — stop cleanly
   }
+  const cachedCount = LABELS.length - uncachedLabels.length;
   const output = {
     round: 1,
-    generatedAt: new Date().toISOString(),
-    method:
+    generatedAt: new Date().toISOString(),    method:
       DETAIL_REPOS > 0
         ? `live GitHub ingestion (DEEP mode: /users/:u/repos + /users/:u/events/public + per-repo commits/releases for the ${DETAIL_REPOS} most recently pushed owned repos). Prediction via pipeline.predictCredential — the exact production path, no re-simulation.`
         : 'live GitHub ingestion (fast mode: /users/:u/repos + /users/:u/events/public, detail/deep repos deferred to a tokenized run). Prediction via pipeline.predictCredential — the exact production path, no re-simulation.',
     mode: DETAIL_REPOS > 0 ? { ingestion: 'deep', detailRepos: DETAIL_REPOS, tokenized: true } : { ingestion: 'fast', detailRepos: 0, tokenized: false },
-    budget: { limit: process.env.GITHUB_TOKEN ? 'tokenized 5000/hr' : 'unauthenticated 60/hr', configured: BUDGET, used },
+    budget: {
+      limit: process.env.GITHUB_TOKEN ? 'tokenized 5000/hr' : 'unauthenticated 60/hr',
+      configured: BUDGET,
+      used,
+      profilesFetched: LABELS.length - cachedCount,
+      profilesFromCache: cachedCount
+    },
     labels: {
       total: LABELS.length,
       positives: LABELS.filter((l) => l.positive).length,
