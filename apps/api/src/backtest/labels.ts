@@ -1,0 +1,65 @@
+/**
+ * Validation back-test ground truth (ARCHITECTURE.md §13 / BUILD_PROMPT §12).
+ *
+ * N = 30 real GitHub accounts, deliberately skewed toward established
+ * open-source maintainers (the candidate pool ProofMesh is built for) plus a
+ * small set of accounts that MUST abstain (training/automation/org accounts).
+ *
+ * `confidence` marks how sure the label is:
+ *   - high       → a maintainer-reviewer would almost certainly issue here
+ *   - provisional→ the direction is strong but the profile mix could argue either way
+ *
+ * Skill choice follows the account's dominant language so coverage is fair.
+ * SkillId is limited to the three shipped analyzers (typescript / java /
+ * solana-anchor where `rust` is the coverage target).
+ */
+export interface BacktestLabel {
+  handle: string;
+  skill: 'typescript' | 'java' | 'solana-anchor';
+  /** true  → this developer *should* receive a credential for the skill. */
+  positive: boolean;
+  confidence: 'high' | 'provisional';
+  rationale: string;
+}
+
+export const LABELS: BacktestLabel[] = [
+  // ---- TypeScript / JavaScript maintainers (positive) ---------------------
+  { handle: 'sindresorhus', skill: 'typescript', positive: true, confidence: 'high', rationale: 'Most prolific TS OSS author in the ecosystem (hundreds of maintained packages).' },
+  { handle: 'kentcdodds', skill: 'typescript', positive: true, confidence: 'high', rationale: 'React/testing-library author, sustained multi-year TS output.' },
+  { handle: 'developit', skill: 'typescript', positive: true, confidence: 'high', rationale: 'Preact creator; deep, star-heavy TS/JS library history.' },
+  { handle: 'paulirish', skill: 'typescript', positive: true, confidence: 'high', rationale: 'Chrome DevTools / Lighthouse; sustained web-platform engineering.' },
+  { handle: 'gaearon', skill: 'typescript', positive: true, confidence: 'high', rationale: 'React core; sustained multi-year JS/TS contribution volume.' },
+  { handle: 'sebmarkbage', skill: 'typescript', positive: true, confidence: 'high', rationale: 'React core (reconciler); long, high-impact JS/TS history.' },
+  { handle: 'rich-harris', skill: 'typescript', positive: true, confidence: 'high', rationale: 'Svelte and Rollup creator; TS-native projects.' },
+  { handle: 'addyosmani', skill: 'typescript', positive: true, confidence: 'high', rationale: 'Chrome / web tooling; high and durable OSS output.' },
+  { handle: 'voxpelli', skill: 'typescript', positive: true, confidence: 'high', rationale: 'Node/TS ecosystem maintainer, consistent release history.' },
+  { handle: 'feross', skill: 'typescript', positive: true, confidence: 'high', rationale: 'standardjs, webtorrent; JS ecosystem core.' },
+  { handle: 'wesbos', skill: 'typescript', positive: true, confidence: 'provisional', rationale: 'High-profile JS/TS educator; mainline output is course/learning repos.' },
+  { handle: 'ironaddicteddog', skill: 'typescript', positive: true, confidence: 'provisional', rationale: 'Anchor/Solana learn-by-doing repos; mostly TS, tutorial-leaning.' },
+
+  // ---- Rust maintainers (solana-anchor coverage = rust) -------------------
+  { handle: 'BurntSushi', skill: 'solana-anchor', positive: true, confidence: 'high', rationale: 'ripgrep / regex / csv; canonical Rust library work.' },
+  { handle: 'dtolnay', skill: 'solana-anchor', positive: true, confidence: 'high', rationale: 'serde, syn, proc-macro ecosystem; elite Rust output.' },
+  { handle: 'seanmonstar', skill: 'solana-anchor', positive: true, confidence: 'high', rationale: 'hyper / reqwest; core Rust web libraries.' },
+  { handle: 'pcwalton', skill: 'solana-anchor', positive: true, confidence: 'high', rationale: 'Servo / rustc / SpiderMonkey background; deep Rust history.' },
+  { handle: 'aturon', skill: 'solana-anchor', positive: true, confidence: 'high', rationale: 'Rust core team, rayon etc; sustained Rust work.' },
+  { handle: 'nikomatsakis', skill: 'solana-anchor', positive: true, confidence: 'provisional', rationale: 'rustc core; the rust-lang contribution happens in the org (not this account).' },
+
+  // ---- Solana core engineers (rust → solana-anchor) -----------------------
+  { handle: 'aeyakovenko', skill: 'solana-anchor', positive: true, confidence: 'high', rationale: 'Solana co-founder; deep Rust validator work.' },
+  { handle: 'mvines', skill: 'solana-anchor', positive: true, confidence: 'high', rationale: 'Solana Labs; sustained Rust protocol work.' },
+  { handle: 'trentsol', skill: 'solana-anchor', positive: true, confidence: 'high', rationale: 'Solana ecosystem; long Rust history.' },
+  { handle: 'danenbm', skill: 'solana-anchor', positive: true, confidence: 'provisional', rationale: 'Solana Labs; real Rust work but moderate public volume.' },
+
+  // ---- Java maintainers (positive) ----------------------------------------
+  { handle: 'cowtowncoder', skill: 'java', positive: true, confidence: 'high', rationale: 'Jackson core maintainer; decades of sustained Java OSS.' },
+  { handle: 'joshlong', skill: 'java', positive: true, confidence: 'high', rationale: 'Spring team; high sustained Java output.' },
+  { handle: 'akarnokd', skill: 'java', positive: true, confidence: 'high', rationale: 'RxJava / reactive-streams internals; deep Java OSS.' },
+
+  // ---- Must abstain (negative) --------------------------------------------
+  { handle: 'octocat', skill: 'solana-anchor', positive: false, confidence: 'high', rationale: "GitHub's placeholder account; no sustained expert evidence." },
+  { handle: 'githubteacher', skill: 'typescript', positive: false, confidence: 'high', rationale: 'GitHub training automation account, not an individual developer.' },
+  { handle: 'actions', skill: 'typescript', positive: false, confidence: 'high', rationale: 'GitHub Actions org — org account, no personal developer credential.' },
+  { handle: 'dependabot', skill: 'typescript', positive: false, confidence: 'high', rationale: 'Automation/bot account producing machine activity, no personal credential.' },
+  { handle: 'microsoft', skill: 'typescript', positive: false, confidence: 'provisional', rationale: 'Org account — activity is corporate, not a personal developer credential.' },
+];

@@ -42,7 +42,26 @@ pnpm dev              # web on :3000 + api on :4000 (parallel)
 pnpm test             # 24 unit tests (scoring-engine + verifier-sdk)
 pnpm typecheck        # strict TS across all packages
 pnpm seed             # re-seed the API store
+pnpm backtest         # validation back-test (ARCHITECTURE.md §13) on real GitHub accounts
 ```
+
+## Validation back-test (scoring calibration)
+
+`pnpm backtest` runs the scoring engine against N≥30 real, hand-labeled GitHub
+accounts and reports precision / recall / accuracy against the labels — the
+"never cut" calibration check from `ARCHITECTURE.md` §13.
+
+- Runner: `apps/api/src/backtest/run.ts` (+ `labels.ts` ground truth, 30 accounts).
+- Predictions come from `predictCredential()` in `apps/api/src/pipeline.ts` —
+  **the same code path** the API uses, so offline calibration can't drift from
+  production scoring.
+- Fetched GitHub snapshots are disk-cached in `apps/api/src/backtest/cache/`
+  (git-ignored), so re-runs and tuning passes are free.
+- Unauthenticated GitHub is 60 req/hr; fast mode costs 2 requests/account, so a
+  single window covers the full 30. Set `GITHUB_TOKEN=…` (5k/hr) to lift the cap
+  and enable deep-repo detail fetches: `BACKTEST_BUDGET=500 pnpm backtest --tune`.
+- Output: `docs/backtest-round-1.json` — confusion matrix, per-account rows,
+  E0 tuning curve, and a data-derived reference-corpus proposal.
 
 ## API surface
 

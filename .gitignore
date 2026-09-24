@@ -34,3 +34,6 @@ pnpm-debug.log*
 keygen-scripts/
 # solana keypair secrets (never committed)
 .secrets/
+
+# back-test runtime cache (fetched GitHub snapshots)
+apps/api/src/backtest/cache/

@@ -30,8 +30,10 @@ const GH_HEADERS: Record<string, string> = {
 if (process.env.GITHUB_TOKEN) GH_HEADERS.authorization = `Bearer ${process.env.GITHUB_TOKEN}`;
 
 export class GitHubRateLimitedError extends Error {
-  constructor(resetAt: string) {
-    super(`GitHub API rate limit reached; resets ${new Date(resetAt).toISOString()}`);
+  constructor(resetAt: string | null | undefined) {
+    const ts = resetAt ? new Date(resetAt) : null;
+    const reset = ts && !Number.isNaN(ts.getTime()) ? `; resets ${ts.toISOString()}` : '';
+    super(`GitHub API rate limit reached${reset}`);
     this.name = 'GitHubRateLimitedError';
   }
 }
@@ -136,15 +138,18 @@ function monthKey(t: string): string {
 export async function ingestGitHub(
   store: Store,
   username: string,
-  opts: { maxDetailRepos?: number } = {}
+  opts: { maxDetailRepos?: number; skipProfile?: boolean } = {}
 ): Promise<IngestedDeveloper> {
-  const key = `github-sync:${username.toLowerCase()}`;
+  const maxDetail = opts.maxDetailRepos ?? 6;
+  const key = `github-sync:${username.toLowerCase()}:detail${maxDetail}:${
+    opts.skipProfile ? 'noprofile' : 'profile'
+  }`;
   const cached = (store.metadata ?? new Map()).get(key);
   if (cached) return JSON.parse(cached) as IngestedDeveloper;
 
-  const maxDetail = opts.maxDetailRepos ?? 6;
-
-  const profile = await ghFetch<GhUser>(`/users/${encodeURIComponent(username)}`);
+  const profile = opts.skipProfile
+    ? ({ login: username, avatar_url: null, created_at: '' } satisfies GhUser)
+    : await ghFetch<GhUser>(`/users/${encodeURIComponent(username)}`);
   const ghRepos = await ghFetch<GhRepo[]>(
     `/users/${encodeURIComponent(username)}/repos?per_page=100&sort=pushed`
   );
@@ -246,7 +251,11 @@ export async function ingestGitHub(
     githubHandle: username,
     avatarUrl: profile.avatar_url,
     linkedWallets: [],
-    createdAt: new Date(profile.created_at).toISOString(),
+    createdAt: profile.created_at
+      ? new Date(profile.created_at).toISOString()
+      : repos.length
+        ? new Date(Math.min(...owned.map((r) => new Date(r.pushed_at).getTime()))).toISOString()
+        : new Date().toISOString(),
     updatedAt: new Date().toISOString()
   };
 

@@ -13,7 +13,7 @@ import { SKILLS } from '@proofmesh/shared-types';
 import { accountingFromEvidence, computeScore, progressFor, type DimensionSignals } from '@proofmesh/scoring-engine';
 import type { Store } from './store.js';
 import { deriveCredentialPda, readAttestationFromRpc } from '@proofmesh/verifier-sdk';
-import type { AnalysisJob, EvidenceItem, SseEvent, SkillId } from '@proofmesh/shared-types';
+import type { AnalysisJob, EvidenceItem, RepoSnapshot, SseEvent, SkillId } from '@proofmesh/shared-types';
 import { mintCredential } from './mint.js';
 
 /** Real wallet+skill PDA; falls back to a deterministic placeholder if the
@@ -284,17 +284,24 @@ function countType(items: EvidenceItem[], type: string): number {
   return items.filter((e) => e.type === type).length;
 }
 
-function languageCoverageOf(repos: { primaryLanguage: string | null; isFork: boolean }[], skillId: SkillId): number {
+export function languageCoverageOf(repos: { primaryLanguage: string | null; isFork: boolean }[], skillId: SkillId): number {
   const relevant = repos.filter((r) => !r.isFork);
   if (relevant.length === 0) return 0;
-  const desired = skillId === 'java' ? 'java' : skillId === 'typescript' ? 'typescript,ts,js' : 'rust';
+  // GitHub canonical family names (see LANG_CANON in github.ts). The script
+  // family for the shipped analyzers:
+  //   typescript  ← typescript + javascript (JS counts: TS is a strict superset)
+  //   java        ← java
+  //   solana-anchor ← rust
+  const familyOf = (skill: SkillId): string[] =>
+    skill === 'java' ? ['java'] : skill === 'typescript' ? ['typescript', 'javascript'] : ['rust'];
+  const desired = familyOf(skillId);
   const matched = relevant.filter(
-    (r) => r.primaryLanguage && desired.split(',').includes(r.primaryLanguage.toLowerCase())
+    (r) => r.primaryLanguage && desired.includes(r.primaryLanguage.toLowerCase())
   ).length;
   return matched / relevant.length;
 }
 
-function signalsFromEvidence(
+export function signalsFromEvidence(
   skillId: SkillId,
   repos: { primaryLanguage: string | null; isFork: boolean; testFileCount: number; ciGreen: boolean; commitCount: number }[],
   evidence: EvidenceItem[]
@@ -368,7 +375,7 @@ function reviewForEvidence(evidence: EvidenceItem[], score: { shownScore: number
   };
 }
 
-function skepticAssessment(
+export function skepticAssessment(
   repos: { isFork: boolean; primaryLanguage: string | null }[],
   evidence: EvidenceItem[]
 ): { notes: string[]; reduction: number; blocks: boolean } {
@@ -401,7 +408,7 @@ function skepticAssessment(
   return { notes, reduction: Math.min(0.25, reduction), blocks: tutorial && forks === repos.length };
 }
 
-function computeLevelOf(shown: number, confidence: number, tier2: number): CredentialLevel {
+export function computeLevelOf(shown: number, confidence: number, tier2: number): CredentialLevel {
   if (shown >= 88 && confidence >= 0.85 && tier2 >= 1) return 3;
   if (shown >= 75 && confidence >= 0.75) return 2;
   if (shown >= 60 && confidence >= 0.6) return 1;
@@ -411,4 +418,64 @@ function computeLevelOf(shown: number, confidence: number, tier2: number): Crede
 export function jobSse(job: AnalysisJob): SseEvent | null {
   const latest = progressFor(job.stages);
   return { type: 'progress', percent: latest.percent, detail: latest.detail };
+}
+
+// ---------------------------------------------------------------------------
+// Pure prediction path — shared by the API pipeline and the validation
+// back-test (apps/api/src/backtest) so offline calibration can never drift from
+// production scoring. Mirrors the SCORING + SKEPTIC + level construction in
+// runAnalysis() exactly; the wallet-binding requirement is intentionally NOT
+// applied here because it is a product-layer gate, not a quality signal.
+// ---------------------------------------------------------------------------
+
+export interface CredentialPrediction {
+  score: ReturnType<typeof computeScore>;
+  signals: DimensionSignals;
+  finalConfidence: number;
+  blocked: boolean;
+  skepticNotes: string[];
+  level: CredentialLevel;
+  /** quality-gate outcome: passes eligibility + skeptic, no wallet requirement. */
+  issued: boolean;
+  reasons: string[];
+}
+
+export function predictCredential(
+  skillId: SkillId,
+  repos: RepoSnapshot[],
+  evidence: EvidenceItem[]
+): CredentialPrediction {
+  const skill = SKILLS[skillId];
+  const signals = signalsFromEvidence(skillId, repos, evidence);
+  const accounting = accountingFromEvidence(evidence);
+  const languageCoverage = languageCoverageOf(repos, skillId);
+  const score = computeScore({
+    skillId,
+    accounting,
+    dimensionSignals: signals,
+    languageCoverage,
+    confidenceCap: skill.coverageCap,
+    priorScore: 50,
+    distinctRepos: repos.filter((r) => !r.isFork).length || undefined,
+    tier2Attestations: accounting.maintainerAttestations >= 2 ? 1 : 0
+  });
+  const skeptic = skepticAssessment(repos, evidence);
+  let finalConfidence = score.confidence;
+  if (skeptic.reduction > 0) {
+    finalConfidence = Math.max(
+      0,
+      Math.round((finalConfidence - skeptic.reduction) * 10000) / 10000
+    );
+  }
+  const issued = !skeptic.blocks && score.passedEligibility && finalConfidence >= 0.6;
+  return {
+    score,
+    signals,
+    finalConfidence,
+    blocked: skeptic.blocks,
+    skepticNotes: skeptic.notes,
+    level: computeLevelOf(score.shownScore, finalConfidence, accounting.maintainerAttestations),
+    issued,
+    reasons: score.eligibilityReasons
+  };
 }
