@@ -22,8 +22,6 @@ type RunState =
     }
   | { kind: 'error'; message: string };
 
-const WALLET_PATTERN = /^[1-9A-HJ-NP-Za-km-z]{32,44}$/;
-
 function shortWallet(w: string): string {
   if (!w) return '';
   return w.length > 16 ? `${w.slice(0, 6)}…${w.slice(-4)}` : w;
@@ -39,10 +37,8 @@ export function VerifyFlow() {
   const [progress, setProgress] = useState<{ percent: number; detail: string } | null>(null);
   const [run, setRun] = useState<RunState>({ kind: 'idle' });
   const [resultStats, setResultStats] = useState<{ shownScore: number; confidence: number } | null>(null);
-  const { wallet, connect, disconnect } = useWallet();
+  const { wallet, walletId, openModal, disconnect, error: walletError } = useWallet();
   const { session } = useAuth();
-  const [walletInput, setWalletInput] = useState('');
-  const [walletError, setWalletError] = useState<string | null>(null);
 
   useEffect(() => {
     let alive = true;
@@ -56,17 +52,6 @@ export function VerifyFlow() {
 
   const mintWallet = wallet ?? undefined;
   const suggestions = useMemo(() => devs.map((d) => d.githubHandle).filter(Boolean), [devs]);
-
-  const onConnect = () => {
-    const value = walletInput.trim();
-    if (!WALLET_PATTERN.test(value)) {
-      setWalletError('Enter a valid Solana address (base58, 32–44 chars).');
-      return;
-    }
-    setWalletError(null);
-    connect(value);
-    setWalletInput('');
-  };
 
   const onEvent = useCallback((ev: SseEvent) => {
     switch (ev.type) {
@@ -184,10 +169,11 @@ export function VerifyFlow() {
             <div className="mt-1 p-3 rounded-lg bg-surface-container-low border border-border-subtle font-label-code text-[11px] text-text-muted">
               <div className="flex items-center justify-between gap-2">
                 <span className="text-text-secondary">
-                  CONNECTED: <span className="select-all text-badge-green-text">{shortWallet(wallet)}</span>
+                  CONNECTED: <span className="select-all text-badge-green-text">{shortWallet(wallet)}</span>{' '}
+                  <span className="text-badge-green-text/70 uppercase text-[9px]">({walletId})</span>
                 </span>
                 <button
-                  onClick={disconnect}
+                  onClick={() => void disconnect()}
                   className="font-label-mono-tag text-[10px] px-2 py-1 rounded border border-border-subtle text-text-muted hover:text-error hover:border-error/40 transition-colors"
                 >
                   DISCONNECT
@@ -196,28 +182,25 @@ export function VerifyFlow() {
               <div className="mt-1.5 truncate select-all text-text-muted/70">{wallet}</div>
             </div>
           ) : (
-            <div className="mt-1 flex gap-2">
-              <input
-                type="text"
-                value={walletInput}
-                onChange={(e) => {
-                  setWalletInput(e.target.value);
-                  if (walletError) setWalletError(null);
-                }}
-                disabled={run.kind === 'running'}
-                placeholder="Paste Solana wallet address"
-                className="flex-1 min-w-0 px-3 py-2 rounded-lg bg-surface-subtle border border-border-subtle text-text-primary text-sm font-mono focus:border-primary-container outline-none transition-colors disabled:opacity-50"
-              />
-              <button
-                onClick={onConnect}
-                disabled={run.kind === 'running' || !walletInput.trim()}
-                className="px-3 py-2 rounded-lg bg-surface-container border border-border-subtle text-text-primary text-xs font-semibold font-mono hover:bg-primary-container hover:text-white transition-colors disabled:opacity-50"
-              >
-                CONNECT
-              </button>
-            </div>
+            <button
+              onClick={openModal}
+              className="mt-1 w-full px-3 py-2.5 rounded-lg bg-surface-subtle border border-border-subtle text-text-primary text-xs font-semibold font-mono hover:bg-primary-container hover:text-white transition-colors"
+            >
+              CONNECT WALLET →
+            </button>
           )}
           {walletError && <p className="mt-1.5 font-label-code text-[10px] text-error">{walletError}</p>}
+          {wallet && !session && (
+            <p className="mt-1.5 font-label-code text-[10px] text-text-muted">
+              Wallet connected but not signed in — use <span className="text-text-secondary">SIGN IN</span> in the
+              header to authorize the pipeline.
+            </p>
+          )}
+          {session && (
+            <p className="mt-1.5 font-label-code text-[10px] text-badge-green-text">
+              SIGNED IN · {session.role.toUpperCase()} · {shortWallet(session.wallet)}
+            </p>
+          )}
           {!wallet && (
             <p className="mt-1.5 font-label-code text-[10px] text-text-muted">
               Your credential is minted to this wallet. Paste any Solana address — no browser extension required for the demo.
