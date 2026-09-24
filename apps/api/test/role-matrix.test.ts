@@ -16,7 +16,8 @@ async function server(): Promise<Ctx> {
   const store = new Store();
   const app = Fastify();
   await app.register(cors, { origin: true, allowedHeaders: ['content-type', 'authorization'] });
-  await registerRoutes(app, { store, adminWallets: new Set([ADMIN.publicKey.toBase58()]) });
+  // rate limits are exercised in audit-rate-limit.test.ts; keep these suites focused
+  await registerRoutes(app, { store, adminWallets: new Set([ADMIN.publicKey.toBase58()]), rateLimits: {} });
   await app.listen({ port: 0 });
   const port = (app.server.address() as { port: number }).port;
   return { url: `http://127.0.0.1:${port}`, store, close: () => app.close().then(() => void 0) };

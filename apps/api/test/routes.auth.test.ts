@@ -16,7 +16,8 @@ async function makeServer(adminWallets: Set<string>): Promise<Bound> {
   const store = new Store();
   const app = Fastify();
   await app.register(cors, { origin: true, allowedHeaders: ['content-type', 'authorization'] });
-  await registerRoutes(app, { store, adminWallets });
+  // rate limits are exercised in audit-rate-limit.test.ts; keep this suite focused
+  await registerRoutes(app, { store, adminWallets, rateLimits: {} });
   await app.listen({ port: 0 });
   const bound = app.server.address() as { port: number };
   return { port: bound.port, close: () => app.close().then(() => void 0) };

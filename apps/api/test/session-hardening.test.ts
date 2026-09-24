@@ -20,7 +20,8 @@ async function server(): Promise<Ctx> {
   const app = Fastify();
   await app.register(cors, { origin: true, credentials: true });
   await app.register(cookie);
-  await registerRoutes(app, { store, adminWallets: new Set([ADMIN_WALLET]) });
+  // rate limits are exercised in audit-rate-limit.test.ts; keep this suite focused
+  await registerRoutes(app, { store, adminWallets: new Set([ADMIN_WALLET]), rateLimits: {} });
   await app.listen({ port: 0 });
   const port = (app.server.address() as { port: number }).port;
   return { url: `http://127.0.0.1:${port}`, store, close: () => app.close().then(() => void 0) };

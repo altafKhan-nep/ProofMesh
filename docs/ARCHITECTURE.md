@@ -333,6 +333,33 @@ Pitch line: *"The score is gameable. The evidence is inspectable. We show both."
 - Sessions live in httpOnly cookies, never in `localStorage`; mutations require a
   CSRF header; privileged actions require a fresh wallet signature bound to that
   exact request (§10.2).
+- **Audit trail (P3).** Security-relevant events (challenge issued, sign-in
+  success/denial, bind attempts, admin actions, rate-limit blocks) are recorded in
+  a bounded 1000-entry ring and exposed to admins at `GET /api/admin/audit`.
+  Records carry identity, intent and outcome — never tokens, CSRF values,
+  signatures or SIWS message bodies (redacted by construction).
+- **Rate limits (P4).** Fixed-window limits per client on the expensive/auth
+  routes, keyed by IP **and** wallet once authenticated, so a shared NAT cannot
+  exhaust a budget and one wallet cannot spray from many IPs. Throttled requests
+  get `429` + `Retry-After` and are audited. Override with
+  `RATE_LIMIT_<ROUTE>=<n>/<window>` (e.g. `RATE_LIMIT_ANALYZE=5/60s`).
+
+### Admin authority rotation (runbook)
+
+`ADMIN_WALLETS` is the single source of admin authority. Rotation procedure:
+
+1. **Add first, remove last.** Append the new wallet to `ADMIN_WALLETS`,
+   restart, and verify with that wallet: sign in → `GET /api/auth/me` shows
+   `role: admin` → perform one benign action (generate a verified link).
+2. Confirm the old wallet is no longer required by any operator.
+3. **Remove the old wallet**, restart, and verify it is now rejected:
+   `GET /api/auth/me` still resolves the session, but an admin action returns
+   `403 admin_required`.
+4. Review `GET /api/admin/audit` for unexpected `admin.action` events before and
+   after the change.
+
+Sessions are in-memory, so a restart also invalidates every existing session —
+useful during an incident, and the reason rotation is a restart-gated operation.
 - Consent-based, positive-only public data: no public negative scores; no scoring of non-opted-in developers; delete-on-request for off-chain data (immutable on-chain data is kept minimal for exactly this reason).
 
 ## 13. Build scope by team size

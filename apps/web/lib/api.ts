@@ -12,6 +12,7 @@ import type {
   RepoSnapshot,
   ScoreSnapshot,
   ActionProofChallenge,
+  AuditEvent,
   SiwsChallenge,
   SiwsVerifyRequest,
   SseEvent,
@@ -108,6 +109,9 @@ export const api = {
   authVerify: (req: SiwsVerifyRequest) =>
     post<{ token: string; wallet: string; role: AuthRole; expiresAt: string }>('/api/auth/verify', req),
   authMe: (token?: string) => get<AuthMe>('/api/auth/me', { token }),
+  /** P3: security audit trail (admin read). */
+  adminAudit: (limit = 25) =>
+    get<{ capacity: number; total: number; events: AuditEvent[] }>(`/api/admin/audit?limit=${limit}`),
   authLogout: (token?: string) => post<{ ok: true }>('/api/auth/logout', {}, { token }),
   /**
    * P2: privileged admin actions require a fresh wallet signature bound to this

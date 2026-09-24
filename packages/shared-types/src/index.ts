@@ -491,3 +491,41 @@ export interface AuthMe {
   role: AuthRole;
   expiresAt: string;
 }
+
+// ---------------------------------------------------------------------------
+// Audit log (P3) — security-relevant events, never secrets
+// ---------------------------------------------------------------------------
+
+export type AuditOutcome = 'success' | 'denied' | 'error' | 'blocked';
+
+export type AuditEventType =
+  | 'auth.challenge'
+  | 'auth.signin'
+  | 'auth.signout'
+  | 'auth.action_proof'
+  | 'bind.attempt'
+  | 'admin.action'
+  | 'analyze.request'
+  | 'rate_limited';
+
+/**
+ * One audit record. Deliberately excludes session tokens, signatures and SIWS
+ * message bodies — only identities, intent and outcome.
+ */
+export interface AuditEvent {
+  id: string;
+  at: string;
+  type: AuditEventType;
+  outcome: AuditOutcome;
+  /** Authenticated wallet, when known. */
+  actor?: string;
+  role?: AuthRole;
+  method?: string;
+  route?: string;
+  /** Short machine-readable reason: invalid_signature, csrf_failed, … */
+  reason?: string;
+  /** Non-identifying client info. */
+  ip?: string;
+  /** Extra, non-sensitive context (e.g. github handle, listing id). */
+  meta?: Record<string, string | number | boolean>;
+}

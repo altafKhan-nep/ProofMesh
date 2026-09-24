@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
-import type { CandidateDeveloper, Listing } from '@proofmesh/shared-types';
+import type { AuditEvent, CandidateDeveloper, Listing } from '@proofmesh/shared-types';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useWallet } from '../../lib/wallet';
@@ -30,12 +30,25 @@ export default function SponsorsPage() {
   const [notice, setNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [selectedListing, setSelectedListing] = useState<string>('');
   const { session, isAdmin } = useAuth();
+  const [audit, setAudit] = useState<AuditEvent[]>([]);
   // Wallet signer for privileged admin actions (P2: every admin write is signed).
   const { signMessage } = useWallet();
 
   useEffect(() => {
     api.listings().then(setListings).catch(() => setListings([]));
   }, []);
+
+  // P3: pull the security audit trail once signed in as an admin.
+  useEffect(() => {
+    if (!isAdmin) {
+      setAudit([]);
+      return;
+    }
+    api
+      .adminAudit(25)
+      .then((r) => setAudit(r.events))
+      .catch(() => setAudit([]));
+  }, [isAdmin, session?.expiresAt]);
 
   const search = useCallback(async () => {
     setSearching(true);
@@ -229,6 +242,45 @@ export default function SponsorsPage() {
                 ))}
               </div>
             </div>
+
+            {isAdmin && (
+              <div className="p-6 bg-surface-card border border-border-subtle rounded-xl shadow-soft-card">
+                <div className="flex items-center justify-between mb-3">
+                  <div className="font-label-caps text-[10px] text-text-muted uppercase tracking-wider">
+                    Security audit trail
+                  </div>
+                  <span className="font-label-mono-tag text-[10px] text-text-muted">{audit.length} recent</span>
+                </div>
+                <div className="flex flex-col gap-1.5 max-h-64 overflow-y-auto">
+                  {audit.length === 0 && (
+                    <p className="font-label-code text-[11px] text-text-muted">No security events recorded yet.</p>
+                  )}
+                  {audit.map((e) => (
+                    <div
+                      key={e.id}
+                      className="flex items-center gap-2 px-2 py-1.5 rounded border border-border-subtle bg-surface-container-low font-label-code text-[10px]"
+                    >
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[9px] uppercase ${
+                          e.outcome === 'success'
+                            ? 'bg-badge-green-bg text-badge-green-text border border-badge-green-border'
+                            : e.outcome === 'blocked'
+                              ? 'bg-error-container/40 text-error border border-error/30'
+                              : 'bg-surface-container text-text-secondary border border-border-strong'
+                        }`}
+                      >
+                        {e.outcome}
+                      </span>
+                      <span className="text-text-primary">{e.type}</span>
+                      {e.route && <span className="text-text-muted truncate">{e.route}</span>}
+                      {e.reason && <span className="text-error">{e.reason}</span>}
+                      {e.actor && <span className="text-text-muted ml-auto shrink-0">{e.actor.slice(0, 6)}…</span>}
+                      <span className="text-text-muted/60 shrink-0">{new Date(e.at).toLocaleTimeString()}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
 
           <div className="lg:col-span-8">

@@ -1,8 +1,10 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { AuthSession, SseEvent } from '@proofmesh/shared-types';
+import type { AuditEventType, AuditOutcome, AuthSession, SseEvent } from '@proofmesh/shared-types';
 import { SKILLS, LEVEL_INFO } from '@proofmesh/shared-types';
 import { validateAttestationRecord, deriveCredentialPda } from '@proofmesh/verifier-sdk';
 import type { Store } from './store.js';
+import { RateLimiter, rateLimitsFromEnv } from './rate-limit.js';
+import type { RateLimitRules } from './rate-limit.js';
 import { runAnalysis } from './pipeline.js';
 import { hydrateSeededRuns } from './hydrate.js';
 import {
@@ -26,6 +28,9 @@ import {
 export interface RouteContext {
   store: Store;
   adminWallets: Set<string>;
+  /** P4: per-route limits; defaults to rateLimitsFromEnv(). Tests may override. */
+  rateLimits?: RateLimitRules;
+  limiter?: RateLimiter;
 }
 
 type RequestWithAuth = FastifyRequest & { auth?: AuthSession; authVia?: 'bearer' | 'cookie' };
@@ -94,22 +99,48 @@ function isMutating(req: FastifyRequest): boolean {
   return !['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase());
 }
 
-/** Fastify preHandler: require a signed-in session (bearer header or cookie+CSRF). */
+/**
+ * Authenticate the request, sending the failure reply itself. Returns the session
+ * on success, or null once a 401/403 has been sent.
+ */
+async function authenticate(
+  request: FastifyRequest,
+  reply: FastifyReply,
+  store: Store
+): Promise<AuthSession | null> {
+  const req = request as RequestWithAuth;
+  const { session, via } = resolveSession(req, store);
+  if (!session) {
+    await reply.code(401).send({ error: 'auth_required', message: 'Sign in with your Solana wallet first.' });
+    return null;
+  }
+  if (via === 'cookie' && isMutating(req) && !safeEqual(headerValue(req, CSRF_HEADER), session.csrfToken)) {
+    await reply.code(403).send({ error: 'csrf_failed', message: 'Missing or invalid CSRF token.' });
+    return null;
+  }
+  req.auth = session;
+  req.authVia = via;
+  return session;
+}
+
+/** Require a signed-in session (bearer header, or cookie + CSRF header). */
 function requireAuth(store: Store) {
-  return (req: RequestWithAuth, reply: FastifyReply, done: () => void): void => {
-    const { session, via } = resolveSession(req, store);
-    if (!session) {
-      reply.code(401).send({ error: 'auth_required', message: 'Sign in with your Solana wallet first.' });
-      return done();
-    }
-    if (via === 'cookie' && isMutating(req) && !safeEqual(headerValue(req, CSRF_HEADER), session.csrfToken)) {
-      reply.code(403).send({ error: 'csrf_failed', message: 'Missing or invalid CSRF token.' });
-      return done();
-    }
-    req.auth = session;
-    req.authVia = via;
-    done();
+  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    await authenticate(request, reply, store);
   };
+}
+
+/** Map a concrete path to its declared route pattern (for limiter keys). */
+function routePattern(req: FastifyRequest): string {
+  const path = req.url.split('?')[0] ?? req.url;
+  if (/^\/api\/listings\/[^/]+\/verified-link$/.test(path)) return '/api/listings/:id/verified-link';
+  if (/^\/api\/listings\/[^/]+$/.test(path)) return '/api/listings/:id';
+  if (/^\/api\/analyze\/[^/]+$/.test(path)) return '/api/analyze/:id';
+  if (/^\/api\/developers\/[^/]+$/.test(path)) return '/api/developers/:handle';
+  if (/^\/api\/evidence\/[^/]+$/.test(path)) return '/api/evidence/:handle';
+  if (/^\/api\/verify\/[^/]+\/[^/]+$/.test(path)) return '/api/verify/:wallet/:skill';
+  if (/^\/api\/badge\/[^/]+\/[^/]+\.svg$/.test(path)) return '/api/badge/:wallet/:skill.svg';
+  return path;
 }
 
 function headerValue(req: FastifyRequest, name: string): string | undefined {
@@ -117,56 +148,135 @@ function headerValue(req: FastifyRequest, name: string): string | undefined {
   return Array.isArray(v) ? v[0] : v;
 }
 
-/**
- * Fastify preHandler for privileged admin actions. Requires BOTH the admin role
- * and a fresh per-request wallet signature (P2): a stolen session cookie cannot
- * perform admin actions on its own.
- */
-function requireAdminProof(store: Store, adminWallets: Set<string>) {
-  const base = requireAuth(store);
-  return (req: RequestWithAuth, reply: FastifyReply, done: () => void): void => {
-    base(req, reply, () => {
-      const session = req.auth;
-      if (!session) return done();
-      if (!adminWallets.has(session.wallet)) {
-        reply.code(403).send({
-          error: 'admin_required',
-          message: 'This action is limited to admin wallets (ADMIN_WALLETS).'
-        });
-        return done();
-      }
-      const nonce = headerValue(req, 'x-pm-action-nonce');
-      const signature = headerValue(req, 'x-pm-action-signature');
-      if (!nonce || !signature) {
-        reply.code(401).send({
-          error: 'action_proof_required',
-          message: 'Privileged actions require a fresh wallet signature over this request.'
-        });
-        return done();
-      }
-      const challenge = store.consumeActionChallenge(nonce);
-      if (!challenge) {
-        reply.code(401).send({ error: 'action_challenge_not_found', message: 'Action challenge unknown or already used.' });
-        return done();
-      }
-      const invalid = verifyActionProof(challenge, signature, {
-        wallet: session.wallet,
-        method: req.method,
-        path: req.url.split('?')[0] ?? req.url,
-        body: req.body
+/** Admin role check (no action signature) — used by reads and as a guard stage. */
+function requireAdminRole(store: Store, adminWallets: Set<string>) {
+  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const session = await authenticate(request, reply, store);
+    if (!session) return;
+    if (!adminWallets.has(session.wallet)) {
+      await reply.code(403).send({
+        error: 'admin_required',
+        message: 'This action is limited to admin wallets (ADMIN_WALLETS).'
       });
-      if (invalid) {
-        reply.code(401).send({ error: invalid });
-        return done();
-      }
-      done();
+    }
+  };
+}
+
+/**
+ * P2: privileged admin actions additionally require a fresh per-request wallet
+ * signature. Runs after authentication + rate limiting, so the limiter can key
+ * on the real wallet and a throttled request never burns an action nonce.
+ */
+function requireActionProof(store: Store) {
+  return async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const req = request as RequestWithAuth;
+    const session = req.auth;
+    if (!session) return;
+    const deny = async (reason: string, error: string, message: string) => {
+      store.audit.record({
+        type: 'admin.action',
+        outcome: 'denied',
+        actor: session.wallet,
+        role: session.role,
+        method: req.method,
+        route: routePattern(req),
+        ip: req.ip,
+        reason
+      });
+      await reply.code(401).send({ error, message });
+    };
+
+    const nonce = headerValue(req, 'x-pm-action-nonce');
+    const signature = headerValue(req, 'x-pm-action-signature');
+    if (!nonce || !signature) {
+      return deny(
+        'action_proof_required',
+        'action_proof_required',
+        'Privileged actions require a fresh wallet signature over this request.'
+      );
+    }
+    const challenge = store.consumeActionChallenge(nonce);
+    if (!challenge) {
+      return deny('action_challenge_not_found', 'action_challenge_not_found', 'Action challenge unknown or already used.');
+    }
+    const invalid = verifyActionProof(challenge, signature, {
+      wallet: session.wallet,
+      method: req.method,
+      path: req.url.split('?')[0] ?? req.url,
+      body: req.body
     });
+    store.audit.record({
+      type: 'admin.action',
+      outcome: invalid ? 'denied' : 'success',
+      actor: session.wallet,
+      role: session.role,
+      method: req.method,
+      route: routePattern(req),
+      ip: req.ip,
+      ...(invalid ? { reason: invalid } : {})
+    });
+    if (invalid) await reply.code(401).send({ error: invalid });
   };
 }
 
 export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const store = ctx.store;
   const adminWallets = ctx.adminWallets;
+  const limiter = ctx.limiter ?? new RateLimiter(ctx.rateLimits ?? rateLimitsFromEnv());
+  const rules = ctx.rateLimits ?? rateLimitsFromEnv();
+
+  /** Client identity for rate limiting: IP always, wallet when authenticated. */
+  const rateKey = (req: RequestWithAuth): string =>
+    `${req.ip ?? 'unknown'}|${(req.auth?.wallet ?? 'anon').slice(0, 12)}`;
+
+  /** P4 preHandler: fixed-window limit per (client, route). */
+  const limit = async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+    const req = request as RequestWithAuth;
+    const route = routePattern(req);
+    const rule = rules[`${req.method.toUpperCase()} ${route}`];
+    const decision = limiter.consume(rateKey(req), rule);
+    if (!decision.ok) {
+      store.audit.record({
+        type: 'rate_limited',
+        outcome: 'blocked',
+        method: req.method,
+        route,
+        ip: req.ip,
+        reason: 'rate_limited',
+        meta: { limit: decision.limit }
+      });
+      reply.header('retry-after', String(decision.retryAfterSec));
+      await reply.code(429).send({
+        error: 'rate_limited',
+        message: `Too many requests. Retry in ${decision.retryAfterSec}s.`
+      });
+      return;
+    }
+  };
+
+  /** Compose guards into one preHandler (array form trips Fastify's hook typing). */
+  const chain =
+    (...guards: Array<(request: FastifyRequest, reply: FastifyReply) => Promise<void>>) =>
+    async (request: FastifyRequest, reply: FastifyReply): Promise<void> => {
+      for (const guard of guards) {
+        if (reply.sent) return; // a previous guard already answered
+        await guard(request, reply);
+      }
+    };
+
+  // Order matters: authenticate first so the limiter can key on the real wallet,
+  // then throttle, then (for admin writes) verify role and the action signature.
+  const authLimited = chain(requireAuth(store), limit);
+  const adminLimited = chain(
+    requireAdminRole(store, adminWallets),
+    limit,
+    requireActionProof(store)
+  );
+  const adminRead = requireAdminRole(store, adminWallets);
+
+  /** P3: append a redacted security event. */
+  const audit = (req: RequestWithAuth, event: Omit<Parameters<Store['audit']['record']>[0], 'ip'>) =>
+    store.audit.record({ ...event, ip: req.ip });
   app.decorateRequest('auth', null as AuthSession | null);
   app.decorateRequest('authVia', null as 'bearer' | 'cookie' | null);
 
@@ -180,9 +290,8 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
 
   // ------------------------------------------------------------------ auth
   const auth = { preHandler: requireAuth(store) };
-  const admin = { preHandler: requireAdminProof(store, adminWallets) };
 
-  app.post('/api/auth/challenge', async (req, reply) => {
+  app.post('/api/auth/challenge', { preHandler: limit }, async (req, reply) => {
     const body = (req.body ?? {}) as { wallet?: string; purpose?: string; subject?: string };
     const wallet = (body.wallet ?? '').trim();
     if (!isValidPubkey(wallet)) {
@@ -195,13 +304,21 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     }
     const challenge = newChallenge(wallet, purpose === 'bind' ? { purpose, subject } : {});
     const issued = store.issueChallenge(challenge);
+    audit(req, {
+      type: 'auth.challenge',
+      outcome: issued.ok ? 'success' : 'denied',
+      method: req.method,
+      route: '/api/auth/challenge',
+      reason: issued.ok ? undefined : issued.reason,
+      meta: { purpose: challenge.purpose ?? 'signin' }
+    });
     if (!issued.ok) {
       return reply.code(429).send({ error: issued.reason, message: 'Too many open challenges for this wallet.' });
     }
     return challenge;
   });
 
-  app.post('/api/auth/verify', async (req, reply) => {
+  app.post('/api/auth/verify', { preHandler: limit }, async (req, reply) => {
     const body = (req.body ?? {}) as { wallet?: string; message?: string; signature?: string };
     const wallet = (body.wallet ?? '').trim();
     const { message, signature } = body as { message: string; signature: string };
@@ -219,6 +336,14 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     if (invalid) return reply.code(401).send({ error: invalid });
 
     if (!verifySiwsSignature(message, signature, wallet)) {
+      audit(req, {
+        type: 'auth.signin',
+        outcome: 'denied',
+        method: req.method,
+        route: '/api/auth/verify',
+        reason: 'invalid_signature',
+        meta: { wallet }
+      });
       return reply.code(401).send({ error: 'invalid_signature' });
     }
 
@@ -228,6 +353,14 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     // Browser transport: httpOnly session cookie + readable CSRF cookie. The
     // token is still returned for API clients that prefer the bearer header.
     setSessionCookies(reply, session, req);
+    audit(req, {
+      type: 'auth.signin',
+      outcome: 'success',
+      actor: wallet,
+      role,
+      method: req.method,
+      route: '/api/auth/verify'
+    });
     return {
       token: session.token,
       csrfToken: session.csrfToken,
@@ -248,7 +381,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
    * signs the exact method+path+body, so the resulting signature cannot be
    * replayed against a different admin action.
    */
-  app.post('/api/auth/action-challenge', auth, async (req, reply) => {
+  app.post('/api/auth/action-challenge', { preHandler: authLimited }, async (req, reply) => {
     const session = (req as RequestWithAuth).auth!;
     const body = (req.body ?? {}) as { method?: string; path?: string; action?: unknown };
     const method = (body.method ?? '').toUpperCase();
@@ -268,10 +401,36 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     return challenge;
   });
 
+  /**
+   * P3: read the security audit trail. Admin-only, and a read (no per-action
+   * signature needed). Every privileged write is already recorded by the guard.
+   */
+  app.get('/api/admin/audit', { preHandler: adminRead }, async (req) => {
+    const q = req.query as { limit?: string; type?: string; outcome?: string };
+    const limitN = Math.min(200, Math.max(1, Number(q.limit ?? 50) || 50));
+    return {
+      capacity: 1000,
+      total: store.audit.size,
+      events: store.audit.list({
+        limit: limitN,
+        ...(q.type ? { type: q.type as AuditEventType } : {}),
+        ...(q.outcome ? { outcome: q.outcome as AuditOutcome } : {})
+      })
+    };
+  });
+
   app.post('/api/auth/logout', auth, async (req, reply) => {
     const session = (req as RequestWithAuth).auth!;
     store.revokeSession(session.token);
     clearSessionCookies(reply);
+    audit(req, {
+      type: 'auth.signout',
+      outcome: 'success',
+      actor: session.wallet,
+      role: session.role,
+      method: req.method,
+      route: '/api/auth/logout'
+    });
     return { ok: true };
   });
 
@@ -286,7 +445,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
 
   // ----------------------------------------------------------------- listings
   app.get('/api/listings', async () => store.listings);
-  app.delete('/api/listings/:id', admin, async (req, reply) => {
+  app.delete('/api/listings/:id', { preHandler: adminLimited }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const idx = store.listings.findIndex((l) => l.id === id);
     if (idx === -1) return reply.code(404).send({ error: 'listing_not_found' });
@@ -295,7 +454,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   });
 
   // ---------------------------------------------------------------- bind wallet
-  app.post('/api/bind', auth, async (req, reply) => {
+  app.post('/api/bind', { preHandler: authLimited }, async (req, reply) => {
     const body = (req.body ?? {}) as {
       githubUsername?: string;
       githubHandle?: string;
@@ -313,6 +472,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     // would let any signed-in wallet claim someone else's identity.
     const session = (req as RequestWithAuth).auth!;
     if (session.wallet !== wallet) {
+      audit(req, { type: 'bind.attempt', outcome: 'denied', actor: session.wallet, reason: 'wallet_mismatch', method: req.method, route: '/api/bind', meta: { handle } });
       return reply.code(403).send({
         error: 'wallet_mismatch',
         message: 'A binding must be signed by the wallet that owns it — sign in with the wallet you are binding.'
@@ -320,6 +480,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     }
     const { message, signature } = body;
     if (!message || !signature) {
+      audit(req, { type: 'bind.attempt', outcome: 'denied', actor: session.wallet, reason: 'proof_required', method: req.method, route: '/api/bind', meta: { handle } });
       return reply.code(400).send({
         error: 'proof_required',
         message: 'Sign a bind challenge (purpose=bind) with this wallet to prove the binding.'
@@ -372,6 +533,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     }
     if (!dev) return reply.code(404).send({ error: 'developer_not_found', githubHandle: handle });
 
+    audit(req, { type: 'bind.attempt', outcome: 'success', actor: session.wallet, method: req.method, route: '/api/bind', meta: { handle } });
     const binding = store.bindWallet(dev.id, wallet, {
       signedMessage: bindChallenge.message,
       nonce: bindChallenge.nonce,
@@ -381,7 +543,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   });
 
   // ------------------------------------------------------------------- analyze
-  app.post('/api/analyze', auth, async (req, reply) => {
+  app.post('/api/analyze', { preHandler: authLimited }, async (req, reply) => {
     const body = (req.body ?? {}) as {
       githubHandle?: string;
       githubUsername?: string;
@@ -448,6 +610,14 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     // binding here would let any signed-in caller claim someone else's identity.
     // An unverified wallet simply receives a score, never a minted credential.
 
+    audit(req, {
+      type: 'analyze.request',
+      outcome: 'success',
+      actor: session.wallet,
+      method: req.method,
+      route: '/api/analyze',
+      meta: { github: handle, skill: skillId }
+    });
     const job = store.createJob({
       developerId: dev.id,
       githubUsername: dev.githubHandle,
@@ -631,7 +801,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   });
 
   // ----------------------------------------------------------------- invite
-  app.post('/api/invite', admin, async (req, reply) => {
+  app.post('/api/invite', { preHandler: adminLimited }, async (req, reply) => {
     const body = (req.body ?? {}) as { listingId?: string; githubHandle?: string; message?: string };
     const listing = store.listings.find((l) => l.id === body.listingId);
     if (!listing) return reply.code(404).send({ error: 'listing_not_found' });
@@ -650,7 +820,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   });
 
   // ------------------------------------------------------- verified link
-  app.post('/api/listings/:id/verified-link', admin, async (req, reply) => {
+  app.post('/api/listings/:id/verified-link', { preHandler: adminLimited }, async (req, reply) => {
     const { id } = req.params as { id: string };
     const listing = store.listings.find((l) => l.id === id);
     if (!listing) return reply.code(404).send({ error: 'listing_not_found' });
@@ -660,7 +830,15 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   });
 
   // ------------------------------------------------------------- CLI/demo
-  app.post('/api/reset', admin, async () => {
+  app.post('/api/reset', { preHandler: adminLimited }, async (req) => {
+    audit(req, {
+      type: 'admin.action',
+      outcome: 'success',
+      actor: (req as RequestWithAuth).auth?.wallet,
+      role: (req as RequestWithAuth).auth?.role,
+      method: req.method,
+      route: '/api/reset'
+    });
     store.reset();
     await hydrateSeededRuns(store);
     return { ok: true };

@@ -27,6 +27,7 @@ import {
   type SkillId,
   type WalletBinding
 } from '@proofmesh/shared-types';
+import { AuditLog } from './audit.js';
 
 const PIPELINE: (typeof PIPELINE_STAGES)[number][] = [
   'INGESTION',
@@ -56,6 +57,8 @@ export class Store {
   /** active bearer sessions, keyed by opaque token (Epic 2). In-memory like the
    *  rest of Store; Postgres/Redis swap keeps this same read/write surface. */
   readonly sessions = new Map<string, AuthSession>();
+  /** Bounded security audit ring (P3): newest first, secrets redacted. */
+  readonly audit = new AuditLog();
 
   constructor() {
     seed(this);
@@ -74,6 +77,7 @@ export class Store {
     this.metadata.clear();
     this.challenges.clear();
     this.actionChallenges.clear();
+    this.audit.clear();
     this.sessions.clear();
     seed(this);
   }
