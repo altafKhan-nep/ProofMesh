@@ -5,6 +5,15 @@ import { validateAttestationRecord, deriveCredentialPda } from '@proofmesh/verif
 import type { Store } from './store.js';
 import { RateLimiter, rateLimitsFromEnv } from './rate-limit.js';
 import {
+  attestationEvidence,
+  attestationId,
+  buildAttestationStatement,
+  isSelfAttestation,
+  repoExists,
+  repoOwnedBy,
+  type AttestationRecord
+} from './attestation.js';
+import {
   authorizeUrl,
   exchangeCode,
   isPendingLive,
@@ -318,17 +327,36 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   const oauthReady = Boolean(oauthCfg && oauthConfigured(oauthCfg));
 
   app.post('/api/auth/challenge', { preHandler: limit }, async (req, reply) => {
-    const body = (req.body ?? {}) as { wallet?: string; purpose?: string; subject?: string };
+    const body = (req.body ?? {}) as {
+      wallet?: string;
+      purpose?: string;
+      subject?: string;
+      repo?: string;
+      skill?: string;
+    };
     const wallet = (body.wallet ?? '').trim();
     if (!isValidPubkey(wallet)) {
       return reply.code(400).send({ error: 'invalid_wallet', message: 'Provide a valid base58 Solana public key.' });
     }
-    const purpose = body.purpose === 'bind' ? 'bind' : 'signin';
+    const purpose = body.purpose === 'bind' || body.purpose === 'attest' ? body.purpose : 'signin';
     const subject = (body.subject ?? '').trim();
-    if (purpose === 'bind' && !/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/.test(subject)) {
-      return reply.code(400).send({ error: 'invalid_subject', message: 'A valid GitHub handle is required to bind.' });
+    const repo = (body.repo ?? '').trim();
+    const skill = (body.skill ?? '').trim();
+    if (purpose !== 'signin' && !/^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$/.test(subject)) {
+      return reply.code(400).send({ error: 'invalid_subject', message: 'A valid GitHub handle is required.' });
     }
-    const challenge = newChallenge(wallet, purpose === 'bind' ? { purpose, subject } : {});
+    if (purpose === 'attest') {
+      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repo)) {
+        return reply.code(400).send({ error: 'invalid_repo', message: 'Repository must be owner/name.' });
+      }
+      if (!skill || !/^[a-z0-9-]{2,40}$/.test(skill)) {
+        return reply.code(400).send({ error: 'invalid_skill' });
+      }
+    }
+    const challenge = newChallenge(
+      wallet,
+      purpose === 'signin' ? {} : { purpose, subject, ...(purpose === 'attest' ? { repo, skill } : {}) }
+    );
     const issued = store.issueChallenge(challenge);
     audit(req, {
       type: 'auth.challenge',
@@ -950,6 +978,162 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
       activeWithinDays: body.activeWithinDays,
       limit: body.limit
     });
+  });
+
+  // --------------------------------------------------------- Tier-2 attestation
+  /**
+   * Independent maintainer attestation (Tier-2). Unlocks Expert/L3, which today is
+   * unreachable because nothing produces MAINTAINER_ATTESTATION evidence.
+   *
+   * Requires, in order: a signed-in wallet, an OAuth-proven GitHub identity, that
+   * identity owning the repository, the attester not being the developer being
+   * vouched for, and a fresh single-use signature over the whole claim.
+   */
+  app.post('/api/attest', { preHandler: authLimited }, async (req, reply) => {
+    const session = (req as RequestWithAuth).auth!;
+    const body = (req.body ?? {}) as {
+      githubUsername?: string;
+      repo?: string;
+      skill?: string;
+      message?: string;
+      signature?: string;
+    };
+    const handle = (body.githubUsername ?? '').trim();
+    const repo = (body.repo ?? '').trim();
+    const skill = (body.skill ?? '').trim();
+    const deny = async (reason: string, error: string, message: string, code = 403) => {
+      audit(req, { type: 'attest.attempt', outcome: 'denied', actor: session.wallet, role: session.role, method: req.method, route: '/api/attest', reason, meta: { handle, repo } });
+      return reply.code(code).send({ error, message });
+    };
+
+    if (!handle || !repo || !skill) {
+      return deny('missing_fields', 'missing_fields', 'githubUsername, repo and skill are required.', 400);
+    }
+    if (!body.message || !body.signature) {
+      return deny('proof_required', 'proof_required', 'Sign an attest challenge with your wallet.', 400);
+    }
+
+    // Rule 1: the attester must have proven their GitHub identity.
+    const attesterLogin = session.githubLogin;
+    if (!attesterLogin) {
+      return deny(
+        'github_proof_required',
+        'github_proof_required',
+        'Connect GitHub (OAuth) first: only a proven GitHub identity can attest.'
+      );
+    }
+
+    const subject = store.findDeveloper(handle);
+    if (!subject) {
+      return deny('developer_not_found', 'developer_not_found', `No developer @${handle} in the store.`, 404);
+    }
+
+    // Rule 2: no self-attestation — the whole value of Tier-2 is independence.
+    if (isSelfAttestation(handle, attesterLogin)) {
+      return deny(
+        'self_attestation',
+        'self_attestation',
+        'You cannot attest your own work; Tier-2 requires an independent maintainer.'
+      );
+    }
+
+    const repos = store.reposFor(subject.id);
+    // Rule 3: the attester must own the repository being vouched for.
+    if (!repoExists(repos, repo)) {
+      return deny('repo_not_in_evidence', 'repo_not_in_evidence', `${repo} is not part of @${handle}'s analysed repositories.`, 404);
+    }
+    if (!repoOwnedBy(repos, repo, attesterLogin)) {
+      return deny(
+        'not_repo_owner',
+        'not_repo_owner',
+        `Your GitHub identity @${attesterLogin} does not own ${repo}.`
+      );
+    }
+
+    // Rule 4 (liveness): a fresh single-use challenge bound to this exact claim.
+    const nonce = /^Nonce:\s*(.+)$/m.exec(body.message)?.[1];
+    if (!nonce) return deny('malformed_message', 'malformed_message', 'Could not read the challenge nonce.', 400);
+    const challenge = store.consumeChallenge(nonce);
+    if (!challenge) {
+      return deny('challenge_not_found', 'challenge_not_found', 'Attest challenge unknown or already used.', 401);
+    }
+    if (challenge.purpose !== 'attest' || challenge.subject?.toLowerCase() !== handle.toLowerCase()) {
+      return deny('challenge_audience_mismatch', 'challenge_audience_mismatch', 'That challenge was not issued for this attestation.', 401);
+    }
+    if (challenge.wallet !== session.wallet) {
+      return deny('challenge_wallet_mismatch', 'challenge_wallet_mismatch', 'Challenge was issued to a different wallet.', 401);
+    }
+    if (challenge.repo?.toLowerCase() !== repo.toLowerCase() || challenge.skill !== skill) {
+      return deny('challenge_claim_mismatch', 'challenge_claim_mismatch', 'Challenge was issued for a different repo or skill.', 401);
+    }
+    if (new Date(challenge.expirationTime).getTime() < Date.now()) {
+      return deny('challenge_expired', 'challenge_expired', 'Attest challenge expired — request a new one.', 401);
+    }
+    if (!verifySiwsSignature(challenge.message, body.signature, session.wallet)) {
+      return deny('invalid_signature', 'invalid_signature', 'Signature did not verify.', 401);
+    }
+
+    const record: AttestationRecord = {
+      id: attestationId(session.wallet, handle, repo, challenge.nonce),
+      subjectHandle: handle,
+      subjectDeveloperId: subject.id,
+      attesterLogin,
+      attesterWallet: session.wallet,
+      repo,
+      skill,
+      statement: buildAttestationStatement({ subjectHandle: handle, repo, skill }),
+      signedMessage: challenge.message,
+      signature: body.signature,
+      nonce: challenge.nonce,
+      domain: challenge.domain,
+      issuedAt: challenge.issuedAt,
+      expiresAt: challenge.expirationTime,
+      createdAt: new Date().toISOString()
+    };
+    const existing = store.findAttestation(record.id);
+    if (existing) {
+      return { attestation: existing, duplicate: true };
+    }
+    store.addAttestation(record);
+
+    // Feed the scoring engine: Tier-2 evidence on the subject's evidence set.
+    const evidence = store.evidenceFor(subject.id);
+    store.evidence.set(subject.id, [...evidence, attestationEvidence(record)]);
+
+    audit(req, {
+      type: 'attest.attempt',
+      outcome: 'success',
+      actor: session.wallet,
+      role: session.role,
+      method: req.method,
+      route: '/api/attest',
+      meta: { handle, repo, skill, attester: attesterLogin }
+    });
+    return { attestation: record, duplicate: false };
+  });
+
+  /** Public, independently verifiable attestation list for a developer. */
+  app.get('/api/attestations/:handle', async (req, reply) => {
+    const handle = (req.params as { handle?: string }).handle ?? '';
+    const subject = store.findDeveloper(handle);
+    if (!subject) return reply.code(404).send({ error: 'developer_not_found' });
+    return {
+      developer: subject.githubHandle,
+      attestations: store.attestationsFor(subject.id).map((a) => ({
+        id: a.id,
+        subjectHandle: a.subjectHandle,
+        attesterLogin: a.attesterLogin,
+        attesterWallet: a.attesterWallet,
+        repo: a.repo,
+        skill: a.skill,
+        statement: a.statement,
+        signedMessage: a.signedMessage,
+        signature: a.signature,
+        nonce: a.nonce,
+        issuedAt: a.issuedAt,
+        createdAt: a.createdAt
+      }))
+    };
   });
 
   // ----------------------------------------------------------------- invite

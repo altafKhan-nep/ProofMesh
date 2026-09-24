@@ -328,9 +328,16 @@ export function accountingFromEvidence(evidence: EvidenceItem[]): AccountingInpu
   const signedC = evidence.find((e) => e.type === 'SIGNED_COMMIT_RATIO');
   const signedCommitRatio = signedC?.value ?? 0;
 
-  const maintainerAttestations = evidence
-    .filter((e) => e.type === 'MAINTAINER_ATTESTATION' && e.positive)
-    .reduce((acc, e) => acc + (e.value ?? 1), 0);
+  // Tier-2 attestations count DISTINCT attesters, not raw items: `sourceIdentifier`
+  // carries the attester identity, so one wallet cannot farm confidence by
+  // attesting repeatedly. Items without an identifier (legacy/seeded evidence)
+  // fall back to counting each item once.
+  const attestationItems = evidence.filter((e) => e.type === 'MAINTAINER_ATTESTATION' && e.positive);
+  const identified = new Set(
+    attestationItems.map((e) => e.sourceIdentifier).filter((id): id is string => Boolean(id))
+  );
+  const unidentified = attestationItems.filter((e) => !e.sourceIdentifier).length;
+  const maintainerAttestations = identified.size + unidentified;
 
   const coverageItem = evidence.find((e) => e.metricName === 'analyzer_coverage');
   const analyzerCoverage = coverageItem?.value ?? 1.0;

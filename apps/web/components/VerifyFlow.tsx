@@ -41,6 +41,11 @@ export function VerifyFlow() {
   const { session } = useAuth();
   const [github, setGithub] = useState<{ proven: boolean; login: string | null }>({ proven: false, login: null });
   const [bindState, setBindState] = useState<{ kind: 'idle' | 'busy' | 'done' | 'error'; text?: string }>({ kind: 'idle' });
+  const [attestations, setAttestations] = useState<
+    Array<{ id: string; attesterLogin: string; repo: string; skill: string; statement: string }>
+  >([]);
+  const [attestRepo, setAttestRepo] = useState('');
+  const [attestState, setAttestState] = useState<{ kind: 'idle' | 'busy' | 'done' | 'error'; text?: string }>({ kind: 'idle' });
 
   useEffect(() => {
     let alive = true;
@@ -100,6 +105,50 @@ export function VerifyFlow() {
       });
     } catch (err) {
       setBindState({ kind: 'error', text: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  // Tier-2 attestations are public and independently verifiable.
+  useEffect(() => {
+    const h = handle.trim();
+    if (!h) {
+      setAttestations([]);
+      return;
+    }
+    api
+      .attestations(h)
+      .then((r) => setAttestations(r.attestations))
+      .catch(() => setAttestations([]));
+  }, [handle, bindState.kind]);
+
+  const submitAttestation = async () => {
+    const h = handle.trim();
+    if (!wallet || !h || !attestRepo.trim()) return;
+    setAttestState({ kind: 'busy', text: 'Signing the attestation…' });
+    try {
+      const challenge = await api.post<{ message: string }>('/api/auth/challenge', {
+        wallet,
+        purpose: 'attest',
+        subject: h,
+        repo: attestRepo.trim(),
+        skill
+      });
+      const signature = await signMessage(challenge.message);
+      const res = await api.attest({
+        githubUsername: h,
+        repo: attestRepo.trim(),
+        skill,
+        message: challenge.message,
+        signature
+      });
+      setAttestState({
+        kind: 'done',
+        text: res.duplicate
+          ? 'Already recorded (identical claim).'
+          : `Recorded — @${res.attestation.attesterLogin} vouched for this work.`
+      });
+    } catch (err) {
+      setAttestState({ kind: 'error', text: err instanceof Error ? err.message : String(err) });
     }
   };
 
@@ -295,6 +344,51 @@ export function VerifyFlow() {
               )}
             </div>
           )}
+
+          {/* Tier-2: independent maintainer attestation (unlocks Expert) */}
+          <div className="mt-3 p-3 rounded-lg border border-border-subtle bg-surface-container-low">
+            <div className="font-label-caps text-[10px] text-text-muted uppercase tracking-wider mb-2">
+              Tier-2 attestation (independent maintainer)
+            </div>
+            {attestations.length > 0 && (
+              <div className="flex flex-col gap-1 mb-2">
+                {attestations.map((a) => (
+                  <div key={a.id} className="font-label-code text-[10px] text-badge-green-text">
+                    ✓ @{a.attesterLogin} owns {a.repo} · {a.skill}
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={attestRepo}
+                onChange={(e) => setAttestRepo(e.target.value)}
+                placeholder="owner/repository you own"
+                className="flex-1 min-w-0 px-2 py-1.5 rounded bg-surface-subtle border border-border-subtle text-text-primary text-[11px] font-mono focus:border-primary-container outline-none"
+              />
+              <button
+                onClick={() => void submitAttestation()}
+                disabled={attestState.kind === 'busy' || !session || !attestRepo.trim() || !handle.trim()}
+                className="px-2 py-1.5 rounded border border-border-subtle text-[10px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors disabled:opacity-40 disabled:cursor-not-allowed whitespace-nowrap"
+              >
+                {attestState.kind === 'busy' ? 'SIGNING…' : 'ATTEST'}
+              </button>
+            </div>
+            <p className="mt-1.5 font-label-code text-[10px] text-text-muted">
+              Requires a signed-in wallet with a proven GitHub identity that owns the repo — and you cannot attest
+              yourself. Unlocks Expert (L3).
+            </p>
+            {attestState.text && (
+              <p
+                className={`mt-1.5 font-label-code text-[10px] ${
+                  attestState.kind === 'error' ? 'text-error' : 'text-text-muted'
+                }`}
+              >
+                {attestState.text}
+              </p>
+            )}
+          </div>
           {!wallet && (
             <p className="mt-1.5 font-label-code text-[10px] text-text-muted">
               Your credential is minted to this wallet. Paste any Solana address — no browser extension required for the demo.

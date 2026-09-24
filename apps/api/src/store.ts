@@ -28,6 +28,7 @@ import {
   type WalletBinding
 } from '@proofmesh/shared-types';
 import { AuditLog } from './audit.js';
+import type { AttestationRecord } from './attestation.js';
 import { InMemorySessionStore } from './session-store.js';
 import type { SessionStore } from './session-store.js';
 
@@ -64,6 +65,8 @@ export class Store {
   readonly sessionStore: SessionStore;
   /** Bounded security audit ring (P3): newest first, secrets redacted. */
   readonly audit = new AuditLog();
+  /** Tier-2 attestations, keyed by deterministic id. Independently verifiable. */
+  readonly attestations = new Map<string, AttestationRecord>();
 
   constructor(opts: { sessionStore?: SessionStore } = {}) {
     this.sessionStore = opts.sessionStore ?? new InMemorySessionStore();
@@ -84,6 +87,7 @@ export class Store {
     this.challenges.clear();
     this.actionChallenges.clear();
     this.audit.clear();
+    this.attestations.clear();
     void this.sessionStore.clear();
     seed(this);
   }
@@ -187,6 +191,20 @@ export class Store {
   /** Drop idle/expired sessions; returns how many were removed. */
   sweepSessions(): Promise<number> {
     return this.sessionStore.sweep();
+  }
+
+  /** Store a Tier-2 attestation; idempotent on its deterministic id. */
+  addAttestation(record: AttestationRecord): AttestationRecord {
+    this.attestations.set(record.id, record);
+    return record;
+  }
+
+  attestationsFor(developerId: string): AttestationRecord[] {
+    return [...this.attestations.values()].filter((a) => a.subjectDeveloperId === developerId);
+  }
+
+  findAttestation(id: string): AttestationRecord | undefined {
+    return this.attestations.get(id);
   }
 
   issueActionChallenge(challenge: ActionChallenge): void {

@@ -116,6 +116,28 @@ export const api = {
       '/api/bind',
       body
     ),
+  /** Tier-2 attestations. */
+  attest: (body: {
+    githubUsername: string;
+    repo: string;
+    skill: string;
+    message: string;
+    signature: string;
+  }) => post<{ attestation: { id: string; attesterLogin: string; repo: string; skill: string; statement: string }; duplicate: boolean }>('/api/attest', body),
+  attestations: (handle: string) =>
+    get<{
+      developer: string;
+      attestations: Array<{
+        id: string;
+        attesterLogin: string;
+        repo: string;
+        skill: string;
+        statement: string;
+        signedMessage: string;
+        signature: string;
+        issuedAt: string;
+      }>;
+    }>(`/api/attestations/${handle}`),
   /** P3: security audit trail (admin read). */
   adminAudit: (limit = 25) =>
     get<{ capacity: number; total: number; events: AuditEvent[] }>(`/api/admin/audit?limit=${limit}`),

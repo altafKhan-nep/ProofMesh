@@ -452,10 +452,14 @@ export interface SiwsChallenge {
   chainId: string; // "solana:101" (devnet)
   issuedAt: string; // ISO
   expirationTime: string; // ISO
-  /** Audience binding: a 'signin' challenge can never be replayed as a 'bind' proof. */
-  purpose?: 'signin' | 'bind';
-  /** For purpose='bind': the GitHub account the signature authorises. */
+  /** Audience binding: a 'signin' challenge can never be replayed as a 'bind' or
+   *  'attest' proof, and vice versa. */
+  purpose?: 'signin' | 'bind' | 'attest';
+  /** For purpose='bind'/'attest': the GitHub account the signature authorises. */
   subject?: string;
+  /** For purpose='attest': the repository and skill the claim covers. */
+  repo?: string;
+  skill?: string;
 }
 
 export interface SiwsVerifyRequest {
@@ -516,7 +520,8 @@ export type AuditEventType =
   | 'bind.attempt'
   | 'admin.action'
   | 'analyze.request'
-  | 'rate_limited';
+  | 'rate_limited'
+  | 'attest.attempt';
 
 /**
  * One audit record. Deliberately excludes session tokens, signatures and SIWS
