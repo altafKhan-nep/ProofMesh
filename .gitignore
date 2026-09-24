@@ -37,3 +37,4 @@ keygen-scripts/
 
 # back-test runtime cache (fetched GitHub snapshots)
 apps/api/src/backtest/cache/
+apps/api/src/backtest/cache-deep*/
