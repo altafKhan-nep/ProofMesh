@@ -14,6 +14,9 @@ export interface Developer {
   githubId: string;
   githubUsername: string;
   githubHandle: string;
+  /** GitHub account type. ProofMesh credentials are individual-only: Organization
+   *  and Bot accounts are never issuance-eligible regardless of repo signals. */
+  accountType?: 'User' | 'Organization' | 'Bot';
   avatarUrl: string | null;
   linkedWallets: WalletBinding[];
   createdAt: string;

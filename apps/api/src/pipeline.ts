@@ -173,11 +173,17 @@ const score = computeScore({
   // ---- 07 CREDENTIAL CHECK ----------------------------------------------
   const needsWallet = developer.linkedWallets.length === 0;
   const levelWon = computeLevelOf(score.shownScore, finalConfidence, accounting.maintainerAttestations);
+  // ProofMesh credentials attest an *individual* developer. Organization and Bot
+  // accounts can post excellent repos (the round-3 back-test caught `nestjs` and
+  // `spring-projects` clearing the bar), so account type is a hard eligibility
+  // rule, not a scoring penalty.
+  const isIndividual = (developer.accountType ?? 'User') === 'User';
   // ARCHITECTURE.md §6: Verified = score ≥ 60 AND confidence ≥ 0.60 — a
   // sub-60 shown score (thin-evidence shrinkage) must NOT mint, even with
   // high volume. Round-2 back-test surfaced this (level 0 clamped to mint).
   const eligibilityPassed =
     !blocked &&
+    isIndividual &&
     score.passedEligibility &&
     finalConfidence >= 0.6 &&
     score.shownScore >= 60 &&
@@ -458,7 +464,8 @@ export interface CredentialPrediction {
 export function predictCredential(
   skillId: SkillId,
   repos: RepoSnapshot[],
-  evidence: EvidenceItem[]
+  evidence: EvidenceItem[],
+  opts: { accountType?: 'User' | 'Organization' | 'Bot' } = {}
 ): CredentialPrediction {
   const skill = SKILLS[skillId];
   const signals = signalsFromEvidence(skillId, repos, evidence);
@@ -483,7 +490,12 @@ export function predictCredential(
     );
   }
   const level = computeLevelOf(score.shownScore, finalConfidence, accounting.maintainerAttestations);
-  const issued = !skeptic.blocks && score.passedEligibility && finalConfidence >= 0.6 && level >= 1;
+  // Individual-only: org/bot accounts are never issuance-eligible (round-3
+  // back-test found framework orgs out-scoring individual maintainers).
+  const isIndividual = (opts.accountType ?? 'User') === 'User';
+  const issued = !skeptic.blocks && isIndividual && score.passedEligibility && finalConfidence >= 0.6 && level >= 1;
+  const reasons = [...score.eligibilityReasons];
+  if (!isIndividual) reasons.unshift('Account type is not an individual GitHub user (organization/bot).');
   return {
     score,
     signals,
@@ -492,6 +504,6 @@ export function predictCredential(
     skepticNotes: skeptic.notes,
     level,
     issued,
-    reasons: score.eligibilityReasons
+    reasons
   };
 }

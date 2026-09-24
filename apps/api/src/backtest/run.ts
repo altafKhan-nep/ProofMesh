@@ -89,6 +89,7 @@ interface RunRow {
   normalizedSignals: Record<string, number> | null;
   skepticNotes: string[];
   eligibilityReasons: string[];
+  accountType?: 'User' | 'Organization' | 'Bot';
   covered: boolean;
   error?: string;
 }
@@ -102,7 +103,10 @@ function evidenceStats(evidence: EvidenceItem[]): { merges: number; activity: nu
 }
 
 function summarize(rows: RunRow[]): Record<string, unknown> {
-  const covered = rows.filter((r) => r.covered);
+  // Rows whose ingestion failed carry an `error`; they are NOT evidence of a
+  // correct abstention (a 404 negative would otherwise be a free true negative).
+  const failed = rows.filter((r) => r.error);
+  const covered = rows.filter((r) => r.covered && !r.error);
   const tp = covered.filter((r) => r.label && r.predicted).length;
   const fp = covered.filter((r) => !r.label && r.predicted).length;
   const tn = covered.filter((r) => !r.label && !r.predicted).length;
@@ -115,12 +119,14 @@ function summarize(rows: RunRow[]): Record<string, unknown> {
   return {
     covered: covered.length,
     total: rows.length,
+    failedIngestion: failed.length,
+    failedHandles: failed.map((r) => ({ handle: r.handle, error: r.error })),
     confusion: { tp, fp, tn, fn },
     precision,
     recall,
     accuracy,
     f1,
-    note: 'positive = credential SHOULD be issued. Imbalanced classes by design (curated maintainers + abstain cases).'
+    note: 'positive = credential SHOULD be issued. Rows with ingestion errors are excluded from the confusion matrix, never counted as correct abstentions.'
   };
 }
 
@@ -224,7 +230,9 @@ async function scoreHandle(label: BacktestLabel, store: Store): Promise<RunRow> 
     try {
       ingested = await ingestGitHub(store, label.handle, {
         maxDetailRepos: DETAIL_REPOS,
-        skipProfile: true
+        // The profile is required, not optional: it carries the GitHub account
+        // type (User/Organization/Bot) that gates individual-only issuance.
+        skipProfile: false
       });
       fs.mkdirSync(CACHE_DIR, { recursive: true });
       fs.writeFileSync(cacheFile, JSON.stringify(ingested));
@@ -254,7 +262,9 @@ async function scoreHandle(label: BacktestLabel, store: Store): Promise<RunRow> 
       return { handle: label.handle, skill: label.skill, ...base, covered: !message.includes('BACKTEST_BUDGET_EXHAUSTED') && !/rate.limit|403|429/i.test(message) };
     }
   }
-  const prediction = predictCredential(label.skill, ingested.repos, ingested.evidence);
+  const prediction = predictCredential(label.skill, ingested.repos, ingested.evidence, {
+    accountType: ingested.developer.accountType
+  });
   const stats = evidenceStats(ingested.evidence);
   const nonForks = ingested.repos.filter((r) => !r.isFork).length;
   return {
@@ -278,6 +288,7 @@ async function scoreHandle(label: BacktestLabel, store: Store): Promise<RunRow> 
     normalizedSignals: normalizeSignals(prediction.signals as DimensionSignals) as Record<string, number>,
     skepticNotes: prediction.skepticNotes,
     eligibilityReasons: prediction.reasons,
+    accountType: ingested.developer.accountType,
     covered: true
   };
 }
@@ -297,7 +308,7 @@ function discrepancies(rows: RunRow[]): string[] {
  * buy recall, never claims more than the evidence supports.
  */
 function conclude(summary: ReturnType<typeof summarize>, rows: RunRow[]): string {
-  const covered = rows.filter((r) => r.covered);
+  const covered = rows.filter((r) => r.covered && !r.error);
   const raws = covered.map((r) => r.rawScore);
   const minRaw = Math.min(...raws);
   const maxRaw = Math.max(...raws);
@@ -305,6 +316,12 @@ function conclude(summary: ReturnType<typeof summarize>, rows: RunRow[]): string
   const issued = covered.filter((r) => r.predicted).length;
   const posIssued = covered.filter((r) => r.label && r.predicted).length;
   const parts: string[] = [];
+  const failed = rows.filter((r) => r.error);
+  if (failed.length > 0) {
+    parts.push(
+      `${failed.length} label(s) failed ingestion (${failed.map((r) => `${r.handle}:${r.error}`).join(', ')}) and are excluded from the metrics rather than counted as abstentions.`
+    );
+  }
 
   if (degenerate) {
     parts.push(
@@ -315,14 +332,14 @@ function conclude(summary: ReturnType<typeof summarize>, rows: RunRow[]): string
     `Issued ${issued}/${covered.length} (${posIssued} of ${covered.filter((r) => r.label).length} positives) — precision ${summary.precision}, recall ${summary.recall}.`
   );
   if (DETAIL_REPOS > 0) {
-    const confOk = covered.filter((r) => !r.label || r.confidence >= 0.6);
-    const negMax = Math.max(0, ...covered.filter((r) => !r.label && r.confidence >= 0.6).map((r) => r.shownScore));
+    const negEligible = covered.filter((r) => !r.label && r.confidence >= 0.6);
+    const negMax = Math.max(0, ...negEligible.map((r) => r.shownScore));
     const posAt60 = covered.filter((r) => r.label && r.shownScore >= 60).length;
     parts.push(
       `Deep ingest (${DETAIL_REPOS} repos/account: tree test-file density, head-commit CI + signature, release history, archival survival, portfolio push-month continuity) lifts evidence volume — E rose from ~8.5 to ${Math.round(Math.max(...covered.map((r) => r.evidenceUnits)))} max — and the strongest maintainers now clear the bar, so the binding constraint is the shown>=60 gate itself, not evidence volume.`
     );
     parts.push(
-      `Separation check: only ${covered.filter((r) => !r.label && r.confidence >= 0.6).length} negatives clear conf>=0.6 (max shown ${negMax.toFixed(1)}), while ${confOk.filter((r) => r.label).length} positives do and ${posAt60} of them reach shown>=60. Precision/recall at the gate is therefore a product-threshold decision, not a data gap.`
+      `Separation check: ${negEligible.length} negatives clear conf>=0.6 (max shown ${negMax.toFixed(1)}), while ${covered.filter((r) => r.label && r.confidence >= 0.6).length} positives do and ${posAt60} of them reach shown>=60. Precision/recall at the gate is therefore a product-threshold decision, not a data gap.`
     );
   } else {
     parts.push(
@@ -341,7 +358,20 @@ function conclude(summary: ReturnType<typeof summarize>, rows: RunRow[]): string
  * instead of a tuned constant. Confidence and skeptic gates are held fixed.
  */
 function gateSweep(rows: RunRow[]): Record<string, unknown> {
-  const eligible = rows.filter((r) => r.covered && !r.blocked && r.confidence >= 0.6);
+  // Only individual accounts can ever be issued (orgs/bots are removed by the
+  // account-type rule, not by the score gate), so sweeping the gate is only
+  // meaningful over the individual population.
+  const nonIndividual = rows.filter(
+    (r) => r.covered && !r.error && (r.accountType ?? 'User') !== 'User'
+  );
+  const eligible = rows.filter(
+    (r) =>
+      r.covered &&
+      !r.error &&
+      !r.blocked &&
+      (r.accountType ?? 'User') === 'User' &&
+      r.confidence >= 0.6
+  );
   const pos = eligible.filter((r) => r.label);
   const neg = eligible.filter((r) => !r.label);
   const curve: Array<Record<string, number>> = [];
@@ -359,13 +389,16 @@ function gateSweep(rows: RunRow[]): Record<string, unknown> {
     if (!best || row.f1 > best.f1) best = row;
   }
   return {
-    method: 'sweep the shown-score issuance gate; confidence>=0.6 and skeptic gate held fixed',
+    method:
+      'sweep the shown-score issuance gate over INDIVIDUAL accounts only (org/bot accounts are excluded by the account-type eligibility rule); confidence>=0.6 and skeptic gate held fixed',
     basis: { eligible: eligible.length, positives: pos.length, negatives: neg.length },
+    excludedByAccountType: nonIndividual.length,
+    excludedHandles: nonIndividual.map((r) => ({ handle: r.handle, accountType: r.accountType, shownScore: r.shownScore })),
     currentGate: 60,
     best,
     note:
       neg.length < 5
-        ? 'WARNING: fewer than 5 confidence-eligible negatives — precision here is not statistically stable; treat gate moves as provisional.'
+        ? 'WARNING: fewer than 5 confidence-eligible INDIVIDUAL negatives — precision here is not statistically stable; treat gate moves as provisional.'
         : undefined,
     negativeShownScores: neg.map((r) => ({ handle: r.handle, shownScore: r.shownScore })),
     curve

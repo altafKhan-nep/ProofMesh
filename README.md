@@ -101,6 +101,27 @@ precision 1.0 / recall 0.44. That is a product-threshold call, and the sweep
 warns it rests on only 3 eligible negatives — provisional until the negative class
 is widened (org/bot/teacher accounts).
 
+**Round 3 — negative class widened (5 → 36) and an org-inflation bug found.**
+Precision measured against 3 negatives was not meaningful, so the abstain class
+was widened to 36 accounts, weighted toward *hard* negatives: framework/vendor
+orgs whose public output satisfies exactly the signals the engine rewards
+(`vercel`, `nestjs`, `withastro`, `spring-projects`, `openjdk`, `solana-labs`,
+`rust-lang`, …), automation accounts (`renovatebot`, `codecov`, `imgbot`), and
+course publishers (`freeCodeCamp`, `exercism`). The result exposed a real
+vulnerability: with the score gate alone, **`nestjs` (shown 60.7) and
+`spring-projects` (60.2) were issued credentials**, out-scoring `kentcdodds`
+(58.0) and `addyosmani` (56.2) — orgs dominate every measured signal, so no gate
+placement fixes it. Fix: a hard **individual-only** eligibility rule from the
+GitHub account type (`/users/:u.type`), one request, documented in
+ARCHITECTURE.md §6 and listed in the anti-gaming table. Measured after the fix
+(60/61 rows, 1553 requests): **precision 1.0, zero false positives**, recall
+0.042 (1/24 positives — `dtolnay`), accuracy 0.617.
+
+Also fixed: rows whose ingestion fails were being counted as correct abstentions
+(a 404 negative was a free true negative), which the widened set immediately
+exposed via the phantom label `trentsol` (404). Failed rows are now excluded from
+the confusion matrix and reported in `#summary.failedHandles`.
+
 ## API surface
 
 `GET /health` · `GET /api/developers[/:handle]` · `GET/POST/DELETE /api/listings` · `POST /api/analyze` ·

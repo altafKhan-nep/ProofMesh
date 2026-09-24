@@ -139,7 +139,20 @@ confidence c = 1 − exp(−E / E0)        (E0 calibrated per-round by the back-
 shown_score  = prior + c · (raw − prior)   (prior = corpus median — shrinks thin evidence toward "average")
 
 Credential eligibility:  c ≥ 0.60  AND  language coverage ≥ 50%  AND  (≥ 2 distinct repos OR ≥ 1 external merged PR)
+                        AND  account type = individual GitHub user
 ```
+
+**Individual-only issuance.** A credential attests an *individual* developer, so
+GitHub `Organization` and `Bot` accounts are never issuance-eligible, regardless
+of how strong their repos look. This is a hard eligibility rule, not a scoring
+penalty, because vendor/framework orgs dominate every signal the engine measures
+(green CI, release cadence, test suites, star volume). The round-3 back-test
+caught exactly this: with the score gate alone, `nestjs` (shown 60.7) and
+`spring-projects` (60.2) were issued credentials, out-scoring individual
+maintainers such as `kentcdodds` (58.0) and `addyosmani` (56.2). The account type
+comes from the GitHub profile (`/users/:u.type`) — one request, always fetched on
+the live path — and the back-test gate sweep reports the individual population
+separately so the score gate is never tuned against orgs it cannot exclude.
 
 The round-2 "traction" evidence makes issuance reachable from the **2-request**
 (fast) public scan the live pipeline actually performs, so the validation
@@ -258,6 +271,7 @@ No signing tools are exposed; all results are treated as data by callers (Claude
 | Test padding | Negative-test ratio; flag tests that assert nothing |
 | AI-generated bulk PRs | **Not claimed to be detected** — score depends on independent-maintainer acceptance, survival, reverts |
 | Collusion rings (mutual approvals) | Weight reviewers by independence/account age; discount reciprocal reviews |
+| Organization / bot accounts posing as developers | Hard individual-only eligibility rule from the GitHub account type (§6); orgs can never be issued, however strong their CI/release/star signals |
 | Account renting / ghostwriting | Not solvable in MVP — roadmap: timed live challenge, Tier-2 attestations |
 | Prompt injection via repo files | Repo text treated strictly as data; strict JSON schemas; LLM has no side-effect tools |
 

@@ -1,6 +1,6 @@
 {
   "round": 1,
-  "generatedAt": "2026-09-24T14:38:39.346Z",
+  "generatedAt": "2026-09-24T14:59:09.207Z",
   "method": "live GitHub ingestion (DEEP mode: /users/:u/repos + /users/:u/events/public + per-repo commits/releases for the 6 most recently pushed owned repos). Prediction via pipeline.predictCredential — the exact production path, no re-simulation.",
   "mode": {
     "ingestion": "deep",
@@ -9,289 +9,446 @@
   },
   "budget": {
     "limit": "tokenized 5000/hr",
-    "configured": 900,
+    "configured": 2500,
     "used": 1
   },
   "labels": {
-    "total": 30,
+    "total": 61,
     "positives": 25,
-    "negatives": 5
+    "negatives": 36
   },
   "summary": {
-    "covered": 30,
-    "total": 30,
+    "covered": 60,
+    "total": 61,
+    "failedIngestion": 1,
+    "failedHandles": [
+      {
+        "handle": "trentsol",
+        "error": "github_user_not_found"
+      }
+    ],
     "confusion": {
       "tp": 1,
       "fp": 0,
-      "tn": 5,
-      "fn": 24
+      "tn": 36,
+      "fn": 23
     },
     "precision": 1,
-    "recall": 0.04,
-    "accuracy": 0.2,
-    "f1": 0.0769,
-    "note": "positive = credential SHOULD be issued. Imbalanced classes by design (curated maintainers + abstain cases)."
+    "recall": 0.0417,
+    "accuracy": 0.6167,
+    "f1": 0.0801,
+    "note": "positive = credential SHOULD be issued. Rows with ingestion errors are excluded from the confusion matrix, never counted as correct abstentions."
   },
-  "conclusion": "Issued 1/30 (1 of 25 positives) — precision 1, recall 0.04. Deep ingest (6 repos/account: tree test-file density, head-commit CI + signature, release history, archival survival, portfolio push-month continuity) lifts evidence volume — E rose from ~8.5 to 18 max — and the strongest maintainers now clear the bar, so the binding constraint is the shown>=60 gate itself, not evidence volume. Separation check: only 3 negatives clear conf>=0.6 (max shown 51.0), while 16 positives do and 1 of them reach shown>=60. Precision/recall at the gate is therefore a product-threshold decision, not a data gap.",
+  "conclusion": "1 label(s) failed ingestion (trentsol:github_user_not_found) and are excluded from the metrics rather than counted as abstentions. Issued 1/60 (1 of 24 positives) — precision 1, recall 0.0417. Deep ingest (6 repos/account: tree test-file density, head-commit CI + signature, release history, archival survival, portfolio push-month continuity) lifts evidence volume — E rose from ~8.5 to 18 max — and the strongest maintainers now clear the bar, so the binding constraint is the shown>=60 gate itself, not evidence volume. Separation check: 29 negatives clear conf>=0.6 (max shown 60.6), while 16 positives do and 1 of them reach shown>=60. Precision/recall at the gate is therefore a product-threshold decision, not a data gap.",
   "gateSweep": {
-    "method": "sweep the shown-score issuance gate; confidence>=0.6 and skeptic gate held fixed",
+    "method": "sweep the shown-score issuance gate over INDIVIDUAL accounts only (org/bot accounts are excluded by the account-type eligibility rule); confidence>=0.6 and skeptic gate held fixed",
     "basis": {
-      "eligible": 19,
+      "eligible": 16,
       "positives": 16,
-      "negatives": 3
+      "negatives": 0
     },
-    "currentGate": 60,
-    "best": {
-      "gate": 30,
-      "tp": 16,
-      "fp": 3,
-      "tn": 0,
-      "fn": 0,
-      "precision": 0.8421,
-      "recall": 1,
-      "f1": 0.9143
-    },
-    "note": "WARNING: fewer than 5 confidence-eligible negatives — precision here is not statistically stable; treat gate moves as provisional.",
-    "negativeShownScores": [
+    "excludedByAccountType": 32,
+    "excludedHandles": [
       {
         "handle": "actions",
+        "accountType": "Organization",
         "shownScore": 51.05
       },
       {
         "handle": "dependabot",
-        "shownScore": 48.05
+        "accountType": "Organization",
+        "shownScore": 44.75
       },
       {
         "handle": "microsoft",
-        "shownScore": 46.55
+        "accountType": "Organization",
+        "shownScore": 49.85
+      },
+      {
+        "handle": "vercel",
+        "accountType": "Organization",
+        "shownScore": 58.4
+      },
+      {
+        "handle": "withastro",
+        "accountType": "Organization",
+        "shownScore": 57.2
+      },
+      {
+        "handle": "sveltejs",
+        "accountType": "Organization",
+        "shownScore": 49.18
+      },
+      {
+        "handle": "vuejs",
+        "accountType": "Organization",
+        "shownScore": 50.9
+      },
+      {
+        "handle": "angular",
+        "accountType": "Organization",
+        "shownScore": 27.27
+      },
+      {
+        "handle": "nestjs",
+        "accountType": "Organization",
+        "shownScore": 60.65
+      },
+      {
+        "handle": "axios",
+        "accountType": "Organization",
+        "shownScore": 44.06
+      },
+      {
+        "handle": "jestjs",
+        "accountType": "Organization",
+        "shownScore": 41.65
+      },
+      {
+        "handle": "electron",
+        "accountType": "Organization",
+        "shownScore": 48.13
+      },
+      {
+        "handle": "vitejs",
+        "accountType": "Organization",
+        "shownScore": 47.75
+      },
+      {
+        "handle": "rollup",
+        "accountType": "Organization",
+        "shownScore": 37.25
+      },
+      {
+        "handle": "webpack",
+        "accountType": "Organization",
+        "shownScore": 45.13
+      },
+      {
+        "handle": "nodejs",
+        "accountType": "Organization",
+        "shownScore": 52.85
+      },
+      {
+        "handle": "netlify",
+        "accountType": "Organization",
+        "shownScore": 57.95
+      },
+      {
+        "handle": "cloudflare",
+        "accountType": "Organization",
+        "shownScore": 55.7
+      },
+      {
+        "handle": "facebook",
+        "accountType": "Organization",
+        "shownScore": 40.88
+      },
+      {
+        "handle": "spring-projects",
+        "accountType": "Organization",
+        "shownScore": 60.2
+      },
+      {
+        "handle": "openjdk",
+        "accountType": "Organization",
+        "shownScore": 31.63
+      },
+      {
+        "handle": "elastic",
+        "accountType": "Organization",
+        "shownScore": 49.85
+      },
+      {
+        "handle": "rust-lang",
+        "accountType": "Organization",
+        "shownScore": 49.04
+      },
+      {
+        "handle": "solana-labs",
+        "accountType": "Organization",
+        "shownScore": 28.07
+      },
+      {
+        "handle": "denoland",
+        "accountType": "Organization",
+        "shownScore": 38.68
+      },
+      {
+        "handle": "hashicorp",
+        "accountType": "Organization",
+        "shownScore": 46.36
+      },
+      {
+        "handle": "kubernetes",
+        "accountType": "Organization",
+        "shownScore": 52.88
+      },
+      {
+        "handle": "renovatebot",
+        "accountType": "Organization",
+        "shownScore": 39.73
+      },
+      {
+        "handle": "codecov",
+        "accountType": "Organization",
+        "shownScore": 55.1
+      },
+      {
+        "handle": "imgbot",
+        "accountType": "Organization",
+        "shownScore": 42.32
+      },
+      {
+        "handle": "freeCodeCamp",
+        "accountType": "Organization",
+        "shownScore": 53.6
+      },
+      {
+        "handle": "exercism",
+        "accountType": "Organization",
+        "shownScore": 45.16
       }
     ],
+    "currentGate": 60,
+    "best": {
+      "gate": 30,
+      "tp": 16,
+      "fp": 0,
+      "tn": 0,
+      "fn": 0,
+      "precision": 1,
+      "recall": 1,
+      "f1": 1
+    },
+    "note": "WARNING: fewer than 5 confidence-eligible INDIVIDUAL negatives — precision here is not statistically stable; treat gate moves as provisional.",
+    "negativeShownScores": [],
     "curve": [
       {
         "gate": 30,
         "tp": 16,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 0,
-        "precision": 0.8421,
+        "precision": 1,
         "recall": 1,
-        "f1": 0.9143
+        "f1": 1
       },
       {
         "gate": 31,
         "tp": 16,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 0,
-        "precision": 0.8421,
+        "precision": 1,
         "recall": 1,
-        "f1": 0.9143
+        "f1": 1
       },
       {
         "gate": 32,
         "tp": 16,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 0,
-        "precision": 0.8421,
+        "precision": 1,
         "recall": 1,
-        "f1": 0.9143
+        "f1": 1
       },
       {
         "gate": 33,
         "tp": 16,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 0,
-        "precision": 0.8421,
+        "precision": 1,
         "recall": 1,
-        "f1": 0.9143
+        "f1": 1
       },
       {
         "gate": 34,
         "tp": 16,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 0,
-        "precision": 0.8421,
+        "precision": 1,
         "recall": 1,
-        "f1": 0.9143
+        "f1": 1
       },
       {
         "gate": 35,
         "tp": 16,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 0,
-        "precision": 0.8421,
+        "precision": 1,
         "recall": 1,
-        "f1": 0.9143
+        "f1": 1
       },
       {
         "gate": 36,
         "tp": 14,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 2,
-        "precision": 0.8235,
+        "precision": 1,
         "recall": 0.875,
-        "f1": 0.8485
+        "f1": 0.9333
       },
       {
         "gate": 37,
         "tp": 14,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 2,
-        "precision": 0.8235,
+        "precision": 1,
         "recall": 0.875,
-        "f1": 0.8485
+        "f1": 0.9333
       },
       {
         "gate": 38,
         "tp": 14,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 2,
-        "precision": 0.8235,
+        "precision": 1,
         "recall": 0.875,
-        "f1": 0.8485
+        "f1": 0.9333
       },
       {
         "gate": 39,
         "tp": 14,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 2,
-        "precision": 0.8235,
+        "precision": 1,
         "recall": 0.875,
-        "f1": 0.8485
+        "f1": 0.9333
       },
       {
         "gate": 40,
         "tp": 14,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 2,
-        "precision": 0.8235,
+        "precision": 1,
         "recall": 0.875,
-        "f1": 0.8485
+        "f1": 0.9333
       },
       {
         "gate": 41,
         "tp": 14,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 2,
-        "precision": 0.8235,
+        "precision": 1,
         "recall": 0.875,
-        "f1": 0.8485
+        "f1": 0.9333
       },
       {
         "gate": 42,
         "tp": 14,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 2,
-        "precision": 0.8235,
+        "precision": 1,
         "recall": 0.875,
-        "f1": 0.8485
+        "f1": 0.9333
       },
       {
         "gate": 43,
         "tp": 14,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 2,
-        "precision": 0.8235,
+        "precision": 1,
         "recall": 0.875,
-        "f1": 0.8485
+        "f1": 0.9333
       },
       {
         "gate": 44,
         "tp": 12,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 4,
-        "precision": 0.8,
+        "precision": 1,
         "recall": 0.75,
-        "f1": 0.7742
+        "f1": 0.8571
       },
       {
         "gate": 45,
         "tp": 10,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 6,
-        "precision": 0.7692,
+        "precision": 1,
         "recall": 0.625,
-        "f1": 0.6897
+        "f1": 0.7692
       },
       {
         "gate": 46,
         "tp": 10,
-        "fp": 3,
+        "fp": 0,
         "tn": 0,
         "fn": 6,
-        "precision": 0.7692,
+        "precision": 1,
         "recall": 0.625,
-        "f1": 0.6897
+        "f1": 0.7692
       },
       {
         "gate": 47,
         "tp": 10,
-        "fp": 2,
-        "tn": 1,
+        "fp": 0,
+        "tn": 0,
         "fn": 6,
-        "precision": 0.8333,
+        "precision": 1,
         "recall": 0.625,
-        "f1": 0.7143
+        "f1": 0.7692
       },
       {
         "gate": 48,
         "tp": 9,
-        "fp": 2,
-        "tn": 1,
+        "fp": 0,
+        "tn": 0,
         "fn": 7,
-        "precision": 0.8182,
+        "precision": 1,
         "recall": 0.5625,
-        "f1": 0.6667
+        "f1": 0.72
       },
       {
         "gate": 49,
         "tp": 9,
-        "fp": 1,
-        "tn": 2,
+        "fp": 0,
+        "tn": 0,
         "fn": 7,
-        "precision": 0.9,
+        "precision": 1,
         "recall": 0.5625,
-        "f1": 0.6923
+        "f1": 0.72
       },
       {
         "gate": 50,
         "tp": 8,
-        "fp": 1,
-        "tn": 2,
+        "fp": 0,
+        "tn": 0,
         "fn": 8,
-        "precision": 0.8889,
+        "precision": 1,
         "recall": 0.5,
-        "f1": 0.64
+        "f1": 0.6667
       },
       {
         "gate": 51,
         "tp": 8,
-        "fp": 1,
-        "tn": 2,
+        "fp": 0,
+        "tn": 0,
         "fn": 8,
-        "precision": 0.8889,
+        "precision": 1,
         "recall": 0.5,
-        "f1": 0.64
+        "f1": 0.6667
       },
       {
         "gate": 52,
         "tp": 7,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 9,
         "precision": 1,
         "recall": 0.4375,
@@ -301,7 +458,7 @@
         "gate": 53,
         "tp": 6,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 10,
         "precision": 1,
         "recall": 0.375,
@@ -311,7 +468,7 @@
         "gate": 54,
         "tp": 3,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 13,
         "precision": 1,
         "recall": 0.1875,
@@ -321,7 +478,7 @@
         "gate": 55,
         "tp": 3,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 13,
         "precision": 1,
         "recall": 0.1875,
@@ -331,7 +488,7 @@
         "gate": 56,
         "tp": 3,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 13,
         "precision": 1,
         "recall": 0.1875,
@@ -341,7 +498,7 @@
         "gate": 57,
         "tp": 2,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 14,
         "precision": 1,
         "recall": 0.125,
@@ -351,7 +508,7 @@
         "gate": 58,
         "tp": 2,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 14,
         "precision": 1,
         "recall": 0.125,
@@ -361,7 +518,7 @@
         "gate": 59,
         "tp": 1,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 15,
         "precision": 1,
         "recall": 0.0625,
@@ -371,7 +528,7 @@
         "gate": 60,
         "tp": 1,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 15,
         "precision": 1,
         "recall": 0.0625,
@@ -381,7 +538,7 @@
         "gate": 61,
         "tp": 1,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 15,
         "precision": 1,
         "recall": 0.0625,
@@ -391,7 +548,7 @@
         "gate": 62,
         "tp": 1,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 15,
         "precision": 1,
         "recall": 0.0625,
@@ -401,7 +558,7 @@
         "gate": 63,
         "tp": 0,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 16,
         "precision": 0,
         "recall": 0,
@@ -411,7 +568,7 @@
         "gate": 64,
         "tp": 0,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 16,
         "precision": 0,
         "recall": 0,
@@ -421,7 +578,7 @@
         "gate": 65,
         "tp": 0,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 16,
         "precision": 0,
         "recall": 0,
@@ -431,7 +588,7 @@
         "gate": 66,
         "tp": 0,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 16,
         "precision": 0,
         "recall": 0,
@@ -441,7 +598,7 @@
         "gate": 67,
         "tp": 0,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 16,
         "precision": 0,
         "recall": 0,
@@ -451,7 +608,7 @@
         "gate": 68,
         "tp": 0,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 16,
         "precision": 0,
         "recall": 0,
@@ -461,7 +618,7 @@
         "gate": 69,
         "tp": 0,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 16,
         "precision": 0,
         "recall": 0,
@@ -471,7 +628,7 @@
         "gate": 70,
         "tp": 0,
         "fp": 0,
-        "tn": 3,
+        "tn": 0,
         "fn": 16,
         "precision": 0,
         "recall": 0,
@@ -536,6 +693,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -568,6 +726,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -600,6 +759,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -634,6 +794,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -668,6 +829,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -702,6 +864,7 @@
       "eligibilityReasons": [
         "Confidence 46.5% below the 60% issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -734,6 +897,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -766,6 +930,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -798,6 +963,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -830,6 +996,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -862,6 +1029,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -897,6 +1065,7 @@
         "Confidence 0.0% below the 60% issuance threshold.",
         "Language coverage 0% below the 50% minimum — only of the codebase was analyzable."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -929,6 +1098,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -961,6 +1131,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -995,6 +1166,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -1029,6 +1201,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -1065,6 +1238,7 @@
         "Confidence 0.0% below the 60% issuance threshold.",
         "Language coverage 29% below the 50% minimum — only of the codebase was analyzable."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -1100,6 +1274,7 @@
         "Confidence 55.6% below the 60% issuance threshold.",
         "Language coverage 33% below the 50% minimum — only of the codebase was analyzable."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -1133,6 +1308,7 @@
         "Confidence 49.7% below the 60% issuance threshold.",
         "Language coverage 42% below the 50% minimum — only of the codebase was analyzable."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -1170,6 +1346,7 @@
         "Confidence 31.3% below the 60% issuance threshold.",
         "Language coverage 31% below the 50% minimum — only of the codebase was analyzable."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -1229,6 +1406,7 @@
         "Confidence 17.1% below the 60% issuance threshold.",
         "Language coverage 11% below the 50% minimum — only of the codebase was analyzable."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -1261,6 +1439,7 @@
       "eligibilityReasons": [
         "Confidence 43.0% below the 60% issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -1295,6 +1474,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -1327,6 +1507,7 @@
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -1361,6 +1542,7 @@
       "eligibilityReasons": [
         "Language coverage 0% below the 50% minimum — only of the codebase was analyzable."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -1396,6 +1578,7 @@
         "Confidence 0.0% below the 60% issuance threshold.",
         "Language coverage 18% below the 50% minimum — only of the codebase was analyzable."
       ],
+      "accountType": "User",
       "covered": true
     },
     {
@@ -1426,8 +1609,10 @@
       },
       "skepticNotes": [],
       "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
         "Evidence volume and coverage clear the issuance threshold."
       ],
+      "accountType": "Organization",
       "covered": true
     },
     {
@@ -1438,8 +1623,8 @@
       "rationale": "Automation/bot account producing machine activity, no personal credential.",
       "predicted": false,
       "match": true,
-      "shownScore": 48.05,
-      "rawScore": 47.4,
+      "shownScore": 44.75,
+      "rawScore": 43,
       "confidence": 0.75,
       "evidenceUnits": 13,
       "level": 0,
@@ -1452,14 +1637,16 @@
         "quality": 68.26923076923077,
         "security": 100,
         "architecture": 51.9,
-        "testing": 61.66666666666667,
+        "testing": 49.16666666666666,
         "consistency": 48.16666666666666,
         "traction": 78.38
       },
       "skepticNotes": [],
       "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
         "Language coverage 4% below the 50% minimum — only of the codebase was analyzable."
       ],
+      "accountType": "Organization",
       "covered": true
     },
     {
@@ -1470,13 +1657,806 @@
       "rationale": "Org account — activity is corporate, not a personal developer credential.",
       "predicted": false,
       "match": true,
-      "shownScore": 46.55,
-      "rawScore": 45.4,
+      "shownScore": 49.85,
+      "rawScore": 49.8,
       "confidence": 0.75,
       "evidenceUnits": 12.5,
       "level": 0,
       "blocked": false,
-      "languageCoverage": 0.2222222222222222,
+      "languageCoverage": 0.21428571428571427,
+      "externalMerges": 0,
+      "activityMonths": 1,
+      "repos": 98,
+      "normalizedSignals": {
+        "quality": 87.5,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 25,
+        "consistency": 43.58333333333333,
+        "traction": 114.76
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Language coverage 21% below the 50% minimum — only of the codebase was analyzable."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "vercel",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Framework vendor org (Next.js); corporate output, not a personal credential.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 58.4,
+      "rawScore": 61.2,
+      "confidence": 0.75,
+      "evidenceUnits": 15.5,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.875,
+      "externalMerges": 0,
+      "activityMonths": 7,
+      "repos": 88,
+      "normalizedSignals": {
+        "quality": 87.5,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 62.49999999999999,
+        "consistency": 71.08333333333334,
+        "traction": 113.19
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "withastro",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Framework vendor org; strong CI/releases but no individual owner.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 57.2,
+      "rawScore": 59.6,
+      "confidence": 0.75,
+      "evidenceUnits": 17,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.4339622641509434,
+      "externalMerges": 0,
+      "activityMonths": 10,
+      "repos": 53,
+      "normalizedSignals": {
+        "quality": 84.16666666666666,
+        "security": 93.33333333333334,
+        "architecture": 51.9,
+        "testing": 74.16666666666666,
+        "consistency": 84.41666666666667,
+        "traction": 98.82
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Language coverage 43% below the 50% minimum — only of the codebase was analyzable."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "sveltejs",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Framework vendor org; corporate maintenance account.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 49.18,
+      "rawScore": 48.9,
+      "confidence": 0.75,
+      "evidenceUnits": 15.5,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.6923076923076923,
+      "externalMerges": 0,
+      "activityMonths": 7,
+      "repos": 78,
+      "normalizedSignals": {
+        "quality": 68.75,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 50,
+        "consistency": 71.08333333333334,
+        "traction": 103.02
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "vuejs",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Framework vendor org; corporate maintenance account.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 50.9,
+      "rawScore": 51.2,
+      "confidence": 0.75,
+      "evidenceUnits": 16,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.6875,
+      "externalMerges": 0,
+      "activityMonths": 8,
+      "repos": 96,
+      "normalizedSignals": {
+        "quality": 78,
+        "security": 80,
+        "architecture": 51.9,
+        "testing": 80.83333333333334,
+        "consistency": 75.66666666666666,
+        "traction": 115.91
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "angular",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Framework vendor org; corporate maintenance account.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 27.27,
+      "rawScore": 18.9,
+      "confidence": 0.6809,
+      "evidenceUnits": 10.5,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.797979797979798,
+      "externalMerges": 0,
+      "activityMonths": 5,
+      "repos": 99,
+      "normalizedSignals": {
+        "quality": 64.5,
+        "security": 60,
+        "architecture": 41.900000000000006,
+        "testing": 16.25,
+        "consistency": 35.41666666666667,
+        "traction": 108.43
+      },
+      "skepticNotes": [
+        "no green-CI test signal to corroborate test discipline"
+      ],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "nestjs",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Framework vendor org; corporate maintenance account.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 60.65,
+      "rawScore": 64.2,
+      "confidence": 0.75,
+      "evidenceUnits": 13,
+      "level": 1,
+      "blocked": false,
+      "languageCoverage": 0.9487179487179487,
+      "externalMerges": 0,
+      "activityMonths": 2,
+      "repos": 39,
+      "normalizedSignals": {
+        "quality": 87.5,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 85.5,
+        "consistency": 48.16666666666666,
+        "traction": 100.92
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "axios",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Library vendor org; single-maintainer-shaped output owned by a company.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 44.06,
+      "rawScore": 41.2,
+      "confidence": 0.6753,
+      "evidenceUnits": 9,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 1,
+      "externalMerges": 0,
+      "activityMonths": 2,
+      "repos": 5,
+      "normalizedSignals": {
+        "quality": 77.5,
+        "security": 92,
+        "architecture": 51.9,
+        "testing": 34.5,
+        "consistency": 48.16666666666666,
+        "traction": 100.89
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "jestjs",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Test-framework org; corporate maintenance account.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 41.65,
+      "rawScore": 18.9,
+      "confidence": 0.2184,
+      "evidenceUnits": 2.5,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 1,
+      "externalMerges": 0,
+      "activityMonths": 1,
+      "repos": 1,
+      "normalizedSignals": {
+        "quality": 65,
+        "security": 60,
+        "architecture": 47.900000000000006,
+        "testing": 16.25,
+        "consistency": 41.08333333333333,
+        "traction": 93.15
+      },
+      "skepticNotes": [
+        "no green-CI test signal to corroborate test discipline"
+      ],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Confidence 26.8% below the 60% issuance threshold.",
+        "Need ≥ 2 distinct public repos or ≥ 1 externally merged PR (found 1 repos / 0 external merges)."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "electron",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Desktop platform org; corporate maintenance account.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 48.13,
+      "rawScore": 47.5,
+      "confidence": 0.75,
+      "evidenceUnits": 15,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.7395833333333334,
+      "externalMerges": 0,
+      "activityMonths": 6,
+      "repos": 96,
+      "normalizedSignals": {
+        "quality": 70,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 49.16666666666666,
+        "consistency": 66.5,
+        "traction": 105.23
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "vitejs",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Build-tool org; corporate maintenance account.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 47.75,
+      "rawScore": 47,
+      "confidence": 0.75,
+      "evidenceUnits": 15.5,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.7096774193548387,
+      "externalMerges": 0,
+      "activityMonths": 7,
+      "repos": 31,
+      "normalizedSignals": {
+        "quality": 75,
+        "security": 86.66666666666666,
+        "architecture": 51.9,
+        "testing": 55,
+        "consistency": 71.08333333333334,
+        "traction": 100.79
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "rollup",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Build-tool org; corporate maintenance account.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 37.25,
+      "rawScore": 33,
+      "confidence": 0.75,
+      "evidenceUnits": 14,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.8958333333333334,
+      "externalMerges": 0,
+      "activityMonths": 4,
+      "repos": 48,
+      "normalizedSignals": {
+        "quality": 59.375,
+        "security": 80,
+        "architecture": 51.9,
+        "testing": 50,
+        "consistency": 57.33333333333333,
+        "traction": 91.72
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "webpack",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Build-tool org; corporate maintenance account.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 45.13,
+      "rawScore": 43.5,
+      "confidence": 0.75,
+      "evidenceUnits": 15.5,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.7954545454545454,
+      "externalMerges": 0,
+      "activityMonths": 7,
+      "repos": 88,
+      "normalizedSignals": {
+        "quality": 52.6685393258427,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 50,
+        "consistency": 71.08333333333334,
+        "traction": 103.04
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "nodejs",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Runtime foundation org; corporate/governance-owned.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 52.85,
+      "rawScore": 53.8,
+      "confidence": 0.75,
+      "evidenceUnits": 17.5,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.5757575757575758,
+      "externalMerges": 0,
+      "activityMonths": 11,
+      "repos": 99,
+      "normalizedSignals": {
+        "quality": 87.5,
+        "security": 93.33333333333334,
+        "architecture": 51.9,
+        "testing": 37.5,
+        "consistency": 88.58333333333333,
+        "traction": 105.59
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "netlify",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Platform vendor org; corporate output.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 57.95,
+      "rawScore": 60.6,
+      "confidence": 0.75,
+      "evidenceUnits": 17,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.6739130434782609,
+      "externalMerges": 0,
+      "activityMonths": 10,
+      "repos": 92,
+      "normalizedSignals": {
+        "quality": 83,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 62.49999999999999,
+        "consistency": 84.41666666666667,
+        "traction": 81.87
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "cloudflare",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Infrastructure vendor org; corporate output.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 55.7,
+      "rawScore": 57.6,
+      "confidence": 0.75,
+      "evidenceUnits": 13,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.5050505050505051,
+      "externalMerges": 0,
+      "activityMonths": 2,
+      "repos": 99,
+      "normalizedSignals": {
+        "quality": 87.5,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 62.49999999999999,
+        "consistency": 48.16666666666666,
+        "traction": 106.16
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "facebook",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "provisional",
+      "rationale": "Corporate monorepo org; enormous volume but no individual credential.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 40.88,
+      "rawScore": 37.8,
+      "confidence": 0.7472,
+      "evidenceUnits": 11,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.15053763440860216,
+      "externalMerges": 0,
+      "activityMonths": 2,
+      "repos": 93,
+      "normalizedSignals": {
+        "quality": 87,
+        "security": 73.33333333333333,
+        "architecture": 51.9,
+        "testing": 25,
+        "consistency": 48.16666666666666,
+        "traction": 113.45
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Language coverage 15% below the 50% minimum — only of the codebase was analyzable."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "spring-projects",
+      "skill": "java",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Framework foundation org; corporate/governance-owned Java output.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 60.2,
+      "rawScore": 63.6,
+      "confidence": 0.75,
+      "evidenceUnits": 17,
+      "level": 1,
+      "blocked": false,
+      "languageCoverage": 0.7763157894736842,
+      "externalMerges": 0,
+      "activityMonths": 10,
+      "repos": 76,
+      "normalizedSignals": {
+        "quality": 86.84210526315789,
+        "security": 93.33333333333334,
+        "architecture": 51.9,
+        "testing": 80.83333333333334,
+        "consistency": 84.41666666666667,
+        "traction": 106.99
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "openjdk",
+      "skill": "java",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "JDK project org; corporate/governance-owned.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 31.63,
+      "rawScore": 25.5,
+      "confidence": 0.7,
+      "evidenceUnits": 12.5,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.8,
+      "externalMerges": 0,
+      "activityMonths": 9,
+      "repos": 100,
+      "normalizedSignals": {
+        "quality": 74.5,
+        "security": 60,
+        "architecture": 41.900000000000006,
+        "testing": 16.25,
+        "consistency": 53.75,
+        "traction": 92.15
+      },
+      "skepticNotes": [
+        "no green-CI test signal to corroborate test discipline"
+      ],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "elastic",
+      "skill": "java",
+      "label": false,
+      "labelConfidence": "provisional",
+      "rationale": "Vendor org with large Java surface; corporate output.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 49.85,
+      "rawScore": 49.8,
+      "confidence": 0.75,
+      "evidenceUnits": 12.5,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.07368421052631578,
+      "externalMerges": 0,
+      "activityMonths": 1,
+      "repos": 95,
+      "normalizedSignals": {
+        "quality": 87.5,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 25,
+        "consistency": 43.58333333333333,
+        "traction": 104.21
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Language coverage 7% below the 50% minimum — only of the codebase was analyzable."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "rust-lang",
+      "skill": "solana-anchor",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Language foundation org; canonical Rust but not a personal credential.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 49.04,
+      "rawScore": 48.8,
+      "confidence": 0.8031,
+      "evidenceUnits": 13,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.65625,
+      "externalMerges": 0,
+      "activityMonths": 2,
+      "repos": 96,
+      "normalizedSignals": {
+        "quality": 86.5,
+        "security": 86.66666666666666,
+        "architecture": 51.9,
+        "testing": 55.83333333333333,
+        "consistency": 48.16666666666666,
+        "traction": 111.36
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "solana-labs",
+      "skill": "solana-anchor",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Protocol vendor org — the org that sponsors Solana work, not an individual engineer.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 28.07,
+      "rawScore": 15.3,
+      "confidence": 0.5821,
+      "evidenceUnits": 8,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.2328767123287671,
+      "externalMerges": 0,
+      "activityMonths": 0,
+      "repos": 73,
+      "normalizedSignals": {
+        "quality": 40,
+        "security": 60,
+        "architecture": 47.900000000000006,
+        "testing": 16.25,
+        "consistency": 36.5,
+        "traction": 88.7
+      },
+      "skepticNotes": [
+        "no green-CI test signal to corroborate test discipline"
+      ],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Language coverage 23% below the 50% minimum — only of the codebase was analyzable."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "denoland",
+      "skill": "solana-anchor",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Language/runtime org; corporate/governance-owned Rust.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 38.68,
+      "rawScore": 36.3,
+      "confidence": 0.7762,
+      "evidenceUnits": 14,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.38461538461538464,
+      "externalMerges": 0,
+      "activityMonths": 12,
+      "repos": 91,
+      "normalizedSignals": {
+        "quality": 83,
+        "security": 60,
+        "architecture": 47.900000000000006,
+        "testing": 37.83333333333333,
+        "consistency": 90.25,
+        "traction": 102.76
+      },
+      "skepticNotes": [
+        "no green-CI test signal to corroborate test discipline"
+      ],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Language coverage 38% below the 50% minimum — only of the codebase was analyzable."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "hashicorp",
+      "skill": "solana-anchor",
+      "label": false,
+      "labelConfidence": "provisional",
+      "rationale": "Infrastructure vendor org; corporate Rust output.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 46.36,
+      "rawScore": 45.4,
+      "confidence": 0.7904,
+      "evidenceUnits": 12.5,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0,
       "externalMerges": 0,
       "activityMonths": 1,
       "repos": 99,
@@ -1484,14 +2464,296 @@
         "quality": 87.5,
         "security": 93.33333333333334,
         "architecture": 51.9,
-        "testing": 25,
+        "testing": 30.83333333333333,
         "consistency": 43.58333333333333,
-        "traction": 114.8
+        "traction": 106.44
       },
       "skepticNotes": [],
       "eligibilityReasons": [
-        "Language coverage 22% below the 50% minimum — only of the codebase was analyzable."
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Language coverage 0% below the 50% minimum — only of the codebase was analyzable."
       ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "kubernetes",
+      "skill": "solana-anchor",
+      "label": false,
+      "labelConfidence": "provisional",
+      "rationale": "Foundation org; corporate/governance-owned.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 52.88,
+      "rawScore": 53.4,
+      "confidence": 0.8466,
+      "evidenceUnits": 15,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0,
+      "externalMerges": 0,
+      "activityMonths": 6,
+      "repos": 78,
+      "normalizedSignals": {
+        "quality": 86.23417721518987,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 25,
+        "consistency": 66.5,
+        "traction": 109.61
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Language coverage 0% below the 50% minimum — only of the codebase was analyzable."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "renovatebot",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Dependency-update bot; machine-authored commits only.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 39.73,
+      "rawScore": 35.6,
+      "confidence": 0.7135,
+      "evidenceUnits": 10,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.2876712328767123,
+      "externalMerges": 0,
+      "activityMonths": 4,
+      "repos": 73,
+      "normalizedSignals": {
+        "quality": 52.83333333333333,
+        "security": 86.66666666666666,
+        "architecture": 51.9,
+        "testing": 55,
+        "consistency": 57.33333333333333,
+        "traction": 87.61
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Language coverage 29% below the 50% minimum — only of the codebase was analyzable."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "codecov",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Coverage bot account; automated PRs and comments.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 55.1,
+      "rawScore": 56.8,
+      "confidence": 0.75,
+      "evidenceUnits": 14.5,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.12359550561797752,
+      "externalMerges": 0,
+      "activityMonths": 5,
+      "repos": 89,
+      "normalizedSignals": {
+        "quality": 83,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 68.33333333333333,
+        "consistency": 61.91666666666667,
+        "traction": 73.77
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Language coverage 12% below the 50% minimum — only of the codebase was analyzable."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "coveralls",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "CI/coverage bot account; automated activity.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 47.17,
+      "rawScore": 3.3,
+      "confidence": 0.0106,
+      "evidenceUnits": 0.5,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0,
+      "externalMerges": 0,
+      "activityMonths": 1,
+      "repos": 0,
+      "normalizedSignals": {
+        "quality": null,
+        "security": 60,
+        "architecture": 41.900000000000006,
+        "testing": 16.25,
+        "consistency": 17.083333333333336,
+        "traction": 0
+      },
+      "skepticNotes": [
+        "no green-CI test signal to corroborate test discipline"
+      ],
+      "eligibilityReasons": [
+        "Confidence 6.1% below the 60% issuance threshold.",
+        "Language coverage 0% below the 50% minimum — only of the codebase was analyzable.",
+        "Need ≥ 2 distinct public repos or ≥ 1 externally merged PR (found 0 repos / 0 external merges)."
+      ],
+      "accountType": "User",
+      "covered": true
+    },
+    {
+      "handle": "imgbot",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Image-optimization bot; automated commits.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 42.32,
+      "rawScore": 15.3,
+      "confidence": 0.1712,
+      "evidenceUnits": 2,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0,
+      "externalMerges": 0,
+      "activityMonths": 0,
+      "repos": 1,
+      "normalizedSignals": {
+        "quality": 65,
+        "security": 60,
+        "architecture": 47.900000000000006,
+        "testing": 16.25,
+        "consistency": 36.5,
+        "traction": 62.59
+      },
+      "skepticNotes": [
+        "no green-CI test signal to corroborate test discipline"
+      ],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Confidence 22.1% below the 60% issuance threshold.",
+        "Language coverage 0% below the 50% minimum — only of the codebase was analyzable.",
+        "Need ≥ 2 distinct public repos or ≥ 1 externally merged PR (found 1 repos / 0 external merges)."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "freeCodeCamp",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Course publisher org; tutorial curriculum, not personal OSS maintenance.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 53.6,
+      "rawScore": 54.8,
+      "confidence": 0.75,
+      "evidenceUnits": 16,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.5257731958762887,
+      "externalMerges": 0,
+      "activityMonths": 8,
+      "repos": 97,
+      "normalizedSignals": {
+        "quality": 80.5,
+        "security": 100,
+        "architecture": 45.89999999999999,
+        "testing": 68.33333333333333,
+        "consistency": 51.66666666666666,
+        "traction": 114.18
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Evidence volume and coverage clear the issuance threshold."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "exercism",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "high",
+      "rationale": "Exercise-platform org; curriculum repos, not personal engineering.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 45.16,
+      "rawScore": 42.6,
+      "confidence": 0.6544,
+      "evidenceUnits": 8.5,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.08,
+      "externalMerges": 0,
+      "activityMonths": 1,
+      "repos": 100,
+      "normalizedSignals": {
+        "quality": 87.5,
+        "security": 93.33333333333334,
+        "architecture": 45.89999999999999,
+        "testing": 43.33333333333333,
+        "consistency": 19.583333333333336,
+        "traction": 64.24
+      },
+      "skepticNotes": [],
+      "eligibilityReasons": [
+        "Account type is not an individual GitHub user (organization/bot).",
+        "Language coverage 8% below the 50% minimum — only of the codebase was analyzable."
+      ],
+      "accountType": "Organization",
+      "covered": true
+    },
+    {
+      "handle": "jwasham",
+      "skill": "typescript",
+      "label": false,
+      "labelConfidence": "provisional",
+      "rationale": "Course/bootcamp publisher; interview-prep tutorials rather than production OSS.",
+      "predicted": false,
+      "match": true,
+      "shownScore": 37.17,
+      "rawScore": 29.7,
+      "confidence": 0.5821,
+      "evidenceUnits": 8,
+      "level": 0,
+      "blocked": false,
+      "languageCoverage": 0.043478260869565216,
+      "externalMerges": 0,
+      "activityMonths": 0,
+      "repos": 23,
+      "normalizedSignals": {
+        "quality": 87.5,
+        "security": 60,
+        "architecture": 41.900000000000006,
+        "testing": 21.5,
+        "consistency": 12.5,
+        "traction": 111.51
+      },
+      "skepticNotes": [
+        "no green-CI test signal to corroborate test discipline"
+      ],
+      "eligibilityReasons": [
+        "Language coverage 4% below the 50% minimum — only of the codebase was analyzable."
+      ],
+      "accountType": "User",
       "covered": true
     }
   ]

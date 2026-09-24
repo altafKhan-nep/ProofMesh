@@ -43,6 +43,7 @@ interface GhUser {
   login: string;
   avatar_url: string | null;
   created_at: string;
+  type?: 'User' | 'Organization' | 'Bot';
 }
 
 interface GhRepo {
@@ -422,6 +423,10 @@ export async function ingestGitHub(
     githubId: `gh-live-${username}`,
     githubUsername: username,
     githubHandle: username,
+    // Profile is the only source of account type; unknown (profile skipped) is
+    // treated as an individual so seeded/legacy rows stay eligible, while every
+    // live-ingest path fetches the profile and therefore knows the real type.
+    accountType: profile.type ?? 'User',
     avatarUrl: profile.avatar_url,
     linkedWallets: [],
     createdAt: profile.created_at
