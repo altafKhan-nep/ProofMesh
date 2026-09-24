@@ -101,7 +101,11 @@ export interface RepoSnapshot {
   commitCount: number;
   prCount: number;
   testFileCount: number;
+  /** Non-test source files seen in the inspected tree (test-density denominator). */
+  sourceFileCount?: number;
   ciGreen: boolean;
+  /** Deep-ingest inspected this repo's tree/CI (testFileCount/ciGreen are real, not defaults). */
+  inspected?: boolean;
 }
 
 // ---------------------------------------------------------------------------

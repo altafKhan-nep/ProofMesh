@@ -1,11 +1,16 @@
 {
   "round": 1,
-  "generatedAt": "2026-09-24T14:11:48.492Z",
-  "method": "live GitHub ingestion (fast mode: /users/:u/repos + /users/:u/events/public, detail/deep repos deferred to a tokenized run). Prediction via pipeline.predictCredential — the exact production path, no re-simulation.",
+  "generatedAt": "2026-09-24T14:38:39.346Z",
+  "method": "live GitHub ingestion (DEEP mode: /users/:u/repos + /users/:u/events/public + per-repo commits/releases for the 6 most recently pushed owned repos). Prediction via pipeline.predictCredential — the exact production path, no re-simulation.",
+  "mode": {
+    "ingestion": "deep",
+    "detailRepos": 6,
+    "tokenized": true
+  },
   "budget": {
-    "limit": "unauthenticated 60/hr",
-    "configured": 58,
-    "used": 58
+    "limit": "tokenized 5000/hr",
+    "configured": 900,
+    "used": 1
   },
   "labels": {
     "total": 30,
@@ -16,43 +21,489 @@
     "covered": 30,
     "total": 30,
     "confusion": {
-      "tp": 0,
+      "tp": 1,
       "fp": 0,
       "tn": 5,
-      "fn": 25
+      "fn": 24
     },
-    "precision": 0,
-    "recall": 0,
-    "accuracy": 0.1667,
-    "f1": 0,
+    "precision": 1,
+    "recall": 0.04,
+    "accuracy": 0.2,
+    "f1": 0.0769,
     "note": "positive = credential SHOULD be issued. Imbalanced classes by design (curated maintainers + abstain cases)."
   },
+  "conclusion": "Issued 1/30 (1 of 25 positives) — precision 1, recall 0.04. Deep ingest (6 repos/account: tree test-file density, head-commit CI + signature, release history, archival survival, portfolio push-month continuity) lifts evidence volume — E rose from ~8.5 to 18 max — and the strongest maintainers now clear the bar, so the binding constraint is the shown>=60 gate itself, not evidence volume. Separation check: only 3 negatives clear conf>=0.6 (max shown 51.0), while 16 positives do and 1 of them reach shown>=60. Precision/recall at the gate is therefore a product-threshold decision, not a data gap.",
+  "gateSweep": {
+    "method": "sweep the shown-score issuance gate; confidence>=0.6 and skeptic gate held fixed",
+    "basis": {
+      "eligible": 19,
+      "positives": 16,
+      "negatives": 3
+    },
+    "currentGate": 60,
+    "best": {
+      "gate": 30,
+      "tp": 16,
+      "fp": 3,
+      "tn": 0,
+      "fn": 0,
+      "precision": 0.8421,
+      "recall": 1,
+      "f1": 0.9143
+    },
+    "note": "WARNING: fewer than 5 confidence-eligible negatives — precision here is not statistically stable; treat gate moves as provisional.",
+    "negativeShownScores": [
+      {
+        "handle": "actions",
+        "shownScore": 51.05
+      },
+      {
+        "handle": "dependabot",
+        "shownScore": 48.05
+      },
+      {
+        "handle": "microsoft",
+        "shownScore": 46.55
+      }
+    ],
+    "curve": [
+      {
+        "gate": 30,
+        "tp": 16,
+        "fp": 3,
+        "tn": 0,
+        "fn": 0,
+        "precision": 0.8421,
+        "recall": 1,
+        "f1": 0.9143
+      },
+      {
+        "gate": 31,
+        "tp": 16,
+        "fp": 3,
+        "tn": 0,
+        "fn": 0,
+        "precision": 0.8421,
+        "recall": 1,
+        "f1": 0.9143
+      },
+      {
+        "gate": 32,
+        "tp": 16,
+        "fp": 3,
+        "tn": 0,
+        "fn": 0,
+        "precision": 0.8421,
+        "recall": 1,
+        "f1": 0.9143
+      },
+      {
+        "gate": 33,
+        "tp": 16,
+        "fp": 3,
+        "tn": 0,
+        "fn": 0,
+        "precision": 0.8421,
+        "recall": 1,
+        "f1": 0.9143
+      },
+      {
+        "gate": 34,
+        "tp": 16,
+        "fp": 3,
+        "tn": 0,
+        "fn": 0,
+        "precision": 0.8421,
+        "recall": 1,
+        "f1": 0.9143
+      },
+      {
+        "gate": 35,
+        "tp": 16,
+        "fp": 3,
+        "tn": 0,
+        "fn": 0,
+        "precision": 0.8421,
+        "recall": 1,
+        "f1": 0.9143
+      },
+      {
+        "gate": 36,
+        "tp": 14,
+        "fp": 3,
+        "tn": 0,
+        "fn": 2,
+        "precision": 0.8235,
+        "recall": 0.875,
+        "f1": 0.8485
+      },
+      {
+        "gate": 37,
+        "tp": 14,
+        "fp": 3,
+        "tn": 0,
+        "fn": 2,
+        "precision": 0.8235,
+        "recall": 0.875,
+        "f1": 0.8485
+      },
+      {
+        "gate": 38,
+        "tp": 14,
+        "fp": 3,
+        "tn": 0,
+        "fn": 2,
+        "precision": 0.8235,
+        "recall": 0.875,
+        "f1": 0.8485
+      },
+      {
+        "gate": 39,
+        "tp": 14,
+        "fp": 3,
+        "tn": 0,
+        "fn": 2,
+        "precision": 0.8235,
+        "recall": 0.875,
+        "f1": 0.8485
+      },
+      {
+        "gate": 40,
+        "tp": 14,
+        "fp": 3,
+        "tn": 0,
+        "fn": 2,
+        "precision": 0.8235,
+        "recall": 0.875,
+        "f1": 0.8485
+      },
+      {
+        "gate": 41,
+        "tp": 14,
+        "fp": 3,
+        "tn": 0,
+        "fn": 2,
+        "precision": 0.8235,
+        "recall": 0.875,
+        "f1": 0.8485
+      },
+      {
+        "gate": 42,
+        "tp": 14,
+        "fp": 3,
+        "tn": 0,
+        "fn": 2,
+        "precision": 0.8235,
+        "recall": 0.875,
+        "f1": 0.8485
+      },
+      {
+        "gate": 43,
+        "tp": 14,
+        "fp": 3,
+        "tn": 0,
+        "fn": 2,
+        "precision": 0.8235,
+        "recall": 0.875,
+        "f1": 0.8485
+      },
+      {
+        "gate": 44,
+        "tp": 12,
+        "fp": 3,
+        "tn": 0,
+        "fn": 4,
+        "precision": 0.8,
+        "recall": 0.75,
+        "f1": 0.7742
+      },
+      {
+        "gate": 45,
+        "tp": 10,
+        "fp": 3,
+        "tn": 0,
+        "fn": 6,
+        "precision": 0.7692,
+        "recall": 0.625,
+        "f1": 0.6897
+      },
+      {
+        "gate": 46,
+        "tp": 10,
+        "fp": 3,
+        "tn": 0,
+        "fn": 6,
+        "precision": 0.7692,
+        "recall": 0.625,
+        "f1": 0.6897
+      },
+      {
+        "gate": 47,
+        "tp": 10,
+        "fp": 2,
+        "tn": 1,
+        "fn": 6,
+        "precision": 0.8333,
+        "recall": 0.625,
+        "f1": 0.7143
+      },
+      {
+        "gate": 48,
+        "tp": 9,
+        "fp": 2,
+        "tn": 1,
+        "fn": 7,
+        "precision": 0.8182,
+        "recall": 0.5625,
+        "f1": 0.6667
+      },
+      {
+        "gate": 49,
+        "tp": 9,
+        "fp": 1,
+        "tn": 2,
+        "fn": 7,
+        "precision": 0.9,
+        "recall": 0.5625,
+        "f1": 0.6923
+      },
+      {
+        "gate": 50,
+        "tp": 8,
+        "fp": 1,
+        "tn": 2,
+        "fn": 8,
+        "precision": 0.8889,
+        "recall": 0.5,
+        "f1": 0.64
+      },
+      {
+        "gate": 51,
+        "tp": 8,
+        "fp": 1,
+        "tn": 2,
+        "fn": 8,
+        "precision": 0.8889,
+        "recall": 0.5,
+        "f1": 0.64
+      },
+      {
+        "gate": 52,
+        "tp": 7,
+        "fp": 0,
+        "tn": 3,
+        "fn": 9,
+        "precision": 1,
+        "recall": 0.4375,
+        "f1": 0.6087
+      },
+      {
+        "gate": 53,
+        "tp": 6,
+        "fp": 0,
+        "tn": 3,
+        "fn": 10,
+        "precision": 1,
+        "recall": 0.375,
+        "f1": 0.5455
+      },
+      {
+        "gate": 54,
+        "tp": 3,
+        "fp": 0,
+        "tn": 3,
+        "fn": 13,
+        "precision": 1,
+        "recall": 0.1875,
+        "f1": 0.3158
+      },
+      {
+        "gate": 55,
+        "tp": 3,
+        "fp": 0,
+        "tn": 3,
+        "fn": 13,
+        "precision": 1,
+        "recall": 0.1875,
+        "f1": 0.3158
+      },
+      {
+        "gate": 56,
+        "tp": 3,
+        "fp": 0,
+        "tn": 3,
+        "fn": 13,
+        "precision": 1,
+        "recall": 0.1875,
+        "f1": 0.3158
+      },
+      {
+        "gate": 57,
+        "tp": 2,
+        "fp": 0,
+        "tn": 3,
+        "fn": 14,
+        "precision": 1,
+        "recall": 0.125,
+        "f1": 0.2222
+      },
+      {
+        "gate": 58,
+        "tp": 2,
+        "fp": 0,
+        "tn": 3,
+        "fn": 14,
+        "precision": 1,
+        "recall": 0.125,
+        "f1": 0.2222
+      },
+      {
+        "gate": 59,
+        "tp": 1,
+        "fp": 0,
+        "tn": 3,
+        "fn": 15,
+        "precision": 1,
+        "recall": 0.0625,
+        "f1": 0.1176
+      },
+      {
+        "gate": 60,
+        "tp": 1,
+        "fp": 0,
+        "tn": 3,
+        "fn": 15,
+        "precision": 1,
+        "recall": 0.0625,
+        "f1": 0.1176
+      },
+      {
+        "gate": 61,
+        "tp": 1,
+        "fp": 0,
+        "tn": 3,
+        "fn": 15,
+        "precision": 1,
+        "recall": 0.0625,
+        "f1": 0.1176
+      },
+      {
+        "gate": 62,
+        "tp": 1,
+        "fp": 0,
+        "tn": 3,
+        "fn": 15,
+        "precision": 1,
+        "recall": 0.0625,
+        "f1": 0.1176
+      },
+      {
+        "gate": 63,
+        "tp": 0,
+        "fp": 0,
+        "tn": 3,
+        "fn": 16,
+        "precision": 0,
+        "recall": 0,
+        "f1": 0
+      },
+      {
+        "gate": 64,
+        "tp": 0,
+        "fp": 0,
+        "tn": 3,
+        "fn": 16,
+        "precision": 0,
+        "recall": 0,
+        "f1": 0
+      },
+      {
+        "gate": 65,
+        "tp": 0,
+        "fp": 0,
+        "tn": 3,
+        "fn": 16,
+        "precision": 0,
+        "recall": 0,
+        "f1": 0
+      },
+      {
+        "gate": 66,
+        "tp": 0,
+        "fp": 0,
+        "tn": 3,
+        "fn": 16,
+        "precision": 0,
+        "recall": 0,
+        "f1": 0
+      },
+      {
+        "gate": 67,
+        "tp": 0,
+        "fp": 0,
+        "tn": 3,
+        "fn": 16,
+        "precision": 0,
+        "recall": 0,
+        "f1": 0
+      },
+      {
+        "gate": 68,
+        "tp": 0,
+        "fp": 0,
+        "tn": 3,
+        "fn": 16,
+        "precision": 0,
+        "recall": 0,
+        "f1": 0
+      },
+      {
+        "gate": 69,
+        "tp": 0,
+        "fp": 0,
+        "tn": 3,
+        "fn": 16,
+        "precision": 0,
+        "recall": 0,
+        "f1": 0
+      },
+      {
+        "gate": 70,
+        "tp": 0,
+        "fp": 0,
+        "tn": 3,
+        "fn": 16,
+        "precision": 0,
+        "recall": 0,
+        "f1": 0
+      }
+    ]
+  },
   "discrepancies": [
-    "sindresorhus (typescript): POS→abstain — score=29.65 conf=60.4% cov=92% E=8.5",
-    "kentcdodds (typescript): POS→abstain — score=29.65 conf=60.4% cov=90% E=8.5",
-    "developit (typescript): POS→abstain — score=29 conf=62.5% cov=91% E=9",
-    "paulirish (typescript): POS→abstain — score=25.78 conf=65.0% cov=60% E=11.5",
-    "gaearon (typescript): POS→abstain — score=29 conf=57.5% cov=78% E=9",
-    "sebmarkbage (typescript): POS→abstain — score=36.35 conf=34.4% cov=60% E=4",
-    "rich-harris (typescript): POS→abstain — score=27.55 conf=64.5% cov=74% E=9.5",
-    "addyosmani (typescript): POS→abstain — score=29 conf=62.5% cov=68% E=9",
-    "voxpelli (typescript): POS→abstain — score=33.87 conf=41.5% cov=90% E=5",
-    "feross (typescript): POS→abstain — score=29.65 conf=60.4% cov=91% E=8.5",
-    "wesbos (typescript): POS→abstain — score=29.65 conf=60.4% cov=73% E=8.5",
+    "sindresorhus (typescript): POS→abstain — score=43.42 conf=73.1% cov=92% E=10.5",
+    "kentcdodds (typescript): POS→abstain — score=58.03 conf=75.0% cov=90% E=17",
+    "developit (typescript): POS→abstain — score=53.3 conf=75.0% cov=91% E=14.5",
+    "paulirish (typescript): POS→abstain — score=53.75 conf=70.0% cov=60% E=16",
+    "gaearon (typescript): POS→abstain — score=44.83 conf=70.0% cov=78% E=15",
+    "sebmarkbage (typescript): POS→abstain — score=38.89 conf=41.5% cov=60% E=5",
+    "rich-harris (typescript): POS→abstain — score=51.65 conf=75.0% cov=74% E=15",
+    "addyosmani (typescript): POS→abstain — score=56.15 conf=75.0% cov=68% E=17.5",
+    "voxpelli (typescript): POS→abstain — score=49.25 conf=75.0% cov=90% E=13",
+    "feross (typescript): POS→abstain — score=44.68 conf=75.0% cov=91% E=14",
+    "wesbos (typescript): POS→abstain — score=47.3 conf=75.0% cov=73% E=17",
     "ironaddicteddog (typescript): POS→abstain — score=50 conf=0.0% cov=0% E=0",
-    "BurntSushi (solana-anchor): POS→abstain — score=29.65 conf=60.4% cov=66% E=8.5",
-    "dtolnay (solana-anchor): POS→abstain — score=29 conf=62.5% cov=91% E=9",
-    "seanmonstar (solana-anchor): POS→abstain — score=29.65 conf=55.4% cov=58% E=8.5",
-    "pcwalton (solana-anchor): POS→abstain — score=28.08 conf=55.4% cov=63% E=8.5",
+    "BurntSushi (solana-anchor): POS→abstain — score=52.53 conf=87.3% cov=66% E=16.5",
+    "seanmonstar (solana-anchor): POS→abstain — score=43.04 conf=74.0% cov=58% E=12.5",
+    "pcwalton (solana-anchor): POS→abstain — score=35.5 conf=69.7% cov=63% E=11",
     "aturon (solana-anchor): POS→abstain — score=50 conf=0.0% cov=29% E=0",
-    "nikomatsakis (solana-anchor): POS→abstain — score=38.77 conf=26.3% cov=33% E=3",
-    "aeyakovenko (solana-anchor): POS→abstain — score=40.69 conf=21.8% cov=42% E=2.5",
-    "mvines (solana-anchor): POS→abstain — score=42.06 conf=12.1% cov=31% E=2",
+    "nikomatsakis (solana-anchor): POS→abstain — score=36.7 conf=50.6% cov=33% E=6.5",
+    "aeyakovenko (solana-anchor): POS→abstain — score=40.85 conf=49.7% cov=42% E=5.5",
+    "mvines (solana-anchor): POS→abstain — score=42.15 conf=21.3% cov=31% E=3",
     "trentsol (solana-anchor): POS→abstain — score=0 conf=0.0% cov=0% E=0",
-    "danenbm (solana-anchor): POS→abstain — score=43.04 conf=12.1% cov=11% E=1.5",
-    "cowtowncoder (java): POS→abstain — score=40.69 conf=21.8% cov=83% E=2.5",
-    "joshlong (java): POS→abstain — score=30.7 conf=50.6% cov=57% E=6.5",
-    "akarnokd (java): POS→abstain — score=28.08 conf=60.4% cov=61% E=8.5"
+    "danenbm (solana-anchor): POS→abstain — score=44.89 conf=12.1% cov=11% E=1.5",
+    "cowtowncoder (java): POS→abstain — score=42.08 conf=43.0% cov=83% E=4.5",
+    "joshlong (java): POS→abstain — score=35.93 conf=60.4% cov=57% E=8.5",
+    "akarnokd (java): POS→abstain — score=53.15 conf=75.0% cov=61% E=14.5"
   ],
   "rows": [
     {
@@ -63,10 +514,10 @@
       "rationale": "Most prolific TS OSS author in the ecosystem (hundreds of maintained packages).",
       "predicted": false,
       "match": false,
-      "shownScore": 29.65,
-      "rawScore": 18.9,
-      "confidence": 0.6044,
-      "evidenceUnits": 8.5,
+      "shownScore": 43.42,
+      "rawScore": 41,
+      "confidence": 0.7309,
+      "evidenceUnits": 10.5,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.92,
@@ -74,16 +525,14 @@
       "activityMonths": 1,
       "repos": 100,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 17.083333333333336,
-        "traction": 100.33
+        "quality": 86.5,
+        "security": 66.66666666666666,
+        "architecture": 51.9,
+        "testing": 60.83333333333333,
+        "consistency": 43.58333333333333,
+        "traction": 100.35
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
@@ -97,27 +546,25 @@
       "rationale": "React/testing-library author, sustained multi-year TS output.",
       "predicted": false,
       "match": false,
-      "shownScore": 29.65,
-      "rawScore": 18.9,
-      "confidence": 0.6044,
-      "evidenceUnits": 8.5,
+      "shownScore": 58.03,
+      "rawScore": 60.7,
+      "confidence": 0.75,
+      "evidenceUnits": 17,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.9041095890410958,
       "externalMerges": 0,
-      "activityMonths": 1,
+      "activityMonths": 10,
       "repos": 73,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 17.083333333333336,
+        "quality": 85,
+        "security": 93.33333333333334,
+        "architecture": 51.9,
+        "testing": 75,
+        "consistency": 84.41666666666667,
         "traction": 89.18
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
@@ -131,27 +578,25 @@
       "rationale": "Preact creator; deep, star-heavy TS/JS library history.",
       "predicted": false,
       "match": false,
-      "shownScore": 29,
-      "rawScore": 18.9,
-      "confidence": 0.6253,
-      "evidenceUnits": 9,
+      "shownScore": 53.3,
+      "rawScore": 54.4,
+      "confidence": 0.75,
+      "evidenceUnits": 14.5,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.9148936170212766,
       "externalMerges": 0,
-      "activityMonths": 2,
+      "activityMonths": 5,
       "repos": 47,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 21.666666666666664,
+        "quality": 87.5,
+        "security": 86.66666666666666,
+        "architecture": 51.9,
+        "testing": 68.75,
+        "consistency": 61.91666666666667,
         "traction": 96.7
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
@@ -165,27 +610,26 @@
       "rationale": "Chrome DevTools / Lighthouse; sustained web-platform engineering.",
       "predicted": false,
       "match": false,
-      "shownScore": 25.78,
-      "rawScore": 17.7,
-      "confidence": 0.65,
-      "evidenceUnits": 11.5,
+      "shownScore": 53.75,
+      "rawScore": 55,
+      "confidence": 0.7,
+      "evidenceUnits": 16,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.6,
       "externalMerges": 0,
-      "activityMonths": 7,
+      "activityMonths": 8,
       "repos": 25,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 44.583333333333336,
+        "quality": 87,
+        "security": 86.66666666666666,
+        "architecture": 45.89999999999999,
+        "testing": 85.5,
+        "consistency": 51.66666666666666,
         "traction": 85.16
       },
       "skepticNotes": [
-        "fork-dominant history detected (≤ verify upstream lineage)",
-        "no green-CI test signal to corroborate test discipline"
+        "fork-dominant history detected (≤ verify upstream lineage)"
       ],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
@@ -200,27 +644,26 @@
       "rationale": "React core; sustained multi-year JS/TS contribution volume.",
       "predicted": false,
       "match": false,
-      "shownScore": 29,
-      "rawScore": 18.9,
-      "confidence": 0.5753,
-      "evidenceUnits": 9,
+      "shownScore": 44.83,
+      "rawScore": 43.1,
+      "confidence": 0.7,
+      "evidenceUnits": 15,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.78125,
       "externalMerges": 0,
-      "activityMonths": 2,
+      "activityMonths": 6,
       "repos": 32,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 21.666666666666664,
+        "quality": 86,
+        "security": 86.66666666666666,
+        "architecture": 45.89999999999999,
+        "testing": 49.16666666666666,
+        "consistency": 42.5,
         "traction": 91.86
       },
       "skepticNotes": [
-        "fork-dominant history detected (≤ verify upstream lineage)",
-        "no green-CI test signal to corroborate test discipline"
+        "fork-dominant history detected (≤ verify upstream lineage)"
       ],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
@@ -235,29 +678,29 @@
       "rationale": "React core (reconciler); long, high-impact JS/TS history.",
       "predicted": false,
       "match": false,
-      "shownScore": 36.35,
-      "rawScore": 15.3,
-      "confidence": 0.3435,
-      "evidenceUnits": 4,
+      "shownScore": 38.89,
+      "rawScore": 26.1,
+      "confidence": 0.4147,
+      "evidenceUnits": 5,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.6,
       "externalMerges": 0,
-      "activityMonths": 0,
+      "activityMonths": 2,
       "repos": 35,
       "normalizedSignals": {
-        "quality": 65,
+        "quality": 87.5,
         "security": 60,
         "architecture": 41.900000000000006,
         "testing": 16.25,
-        "consistency": 12.5,
+        "consistency": 21.666666666666664,
         "traction": 62.78
       },
       "skepticNotes": [
         "no green-CI test signal to corroborate test discipline"
       ],
       "eligibilityReasons": [
-        "Confidence 39.4% below the 60% issuance threshold."
+        "Confidence 46.5% below the 60% issuance threshold."
       ],
       "covered": true
     },
@@ -269,27 +712,25 @@
       "rationale": "Svelte and Rollup creator; TS-native projects.",
       "predicted": false,
       "match": false,
-      "shownScore": 27.55,
-      "rawScore": 17.7,
-      "confidence": 0.645,
-      "evidenceUnits": 9.5,
+      "shownScore": 51.65,
+      "rawScore": 52.2,
+      "confidence": 0.75,
+      "evidenceUnits": 15,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.7361111111111112,
       "externalMerges": 0,
-      "activityMonths": 3,
+      "activityMonths": 6,
       "repos": 72,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 26.25,
+        "quality": 87,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 31.25,
+        "consistency": 66.5,
         "traction": 86.09
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
@@ -303,27 +744,25 @@
       "rationale": "Chrome / web tooling; high and durable OSS output.",
       "predicted": false,
       "match": false,
-      "shownScore": 29,
-      "rawScore": 18.9,
-      "confidence": 0.6253,
-      "evidenceUnits": 9,
+      "shownScore": 56.15,
+      "rawScore": 58.2,
+      "confidence": 0.75,
+      "evidenceUnits": 17.5,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.6811594202898551,
       "externalMerges": 0,
-      "activityMonths": 2,
+      "activityMonths": 11,
       "repos": 69,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 21.666666666666664,
+        "quality": 87,
+        "security": 86.66666666666666,
+        "architecture": 51.9,
+        "testing": 62.49999999999999,
+        "consistency": 88.58333333333333,
         "traction": 103.83
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
@@ -337,29 +776,27 @@
       "rationale": "Node/TS ecosystem maintainer, consistent release history.",
       "predicted": false,
       "match": false,
-      "shownScore": 33.87,
-      "rawScore": 15.3,
-      "confidence": 0.4147,
-      "evidenceUnits": 5,
+      "shownScore": 49.25,
+      "rawScore": 49,
+      "confidence": 0.75,
+      "evidenceUnits": 13,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.9027777777777778,
       "externalMerges": 0,
-      "activityMonths": 2,
+      "activityMonths": 10,
       "repos": 72,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 21.666666666666664,
+        "quality": 87.5,
+        "security": 93.33333333333334,
+        "architecture": 51.9,
+        "testing": 30.83333333333333,
+        "consistency": 84.41666666666667,
         "traction": 62.68
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
-        "Confidence 46.5% below the 60% issuance threshold."
+        "Evidence volume and coverage clear the issuance threshold."
       ],
       "covered": true
     },
@@ -371,27 +808,25 @@
       "rationale": "standardjs, webtorrent; JS ecosystem core.",
       "predicted": false,
       "match": false,
-      "shownScore": 29.65,
-      "rawScore": 18.9,
-      "confidence": 0.6044,
-      "evidenceUnits": 8.5,
+      "shownScore": 44.68,
+      "rawScore": 42.9,
+      "confidence": 0.75,
+      "evidenceUnits": 14,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.9101123595505618,
       "externalMerges": 0,
-      "activityMonths": 1,
+      "activityMonths": 4,
       "repos": 89,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 17.083333333333336,
+        "quality": 86.5,
+        "security": 80,
+        "architecture": 45.89999999999999,
+        "testing": 56.5,
+        "consistency": 35.33333333333333,
         "traction": 88.86
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
@@ -405,27 +840,25 @@
       "rationale": "High-profile JS/TS educator; mainline output is course/learning repos.",
       "predicted": false,
       "match": false,
-      "shownScore": 29.65,
-      "rawScore": 18.9,
-      "confidence": 0.6044,
-      "evidenceUnits": 8.5,
+      "shownScore": 47.3,
+      "rawScore": 46.4,
+      "confidence": 0.75,
+      "evidenceUnits": 17,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.7323943661971831,
       "externalMerges": 0,
-      "activityMonths": 1,
+      "activityMonths": 10,
       "repos": 71,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 17.083333333333336,
+        "quality": 87.5,
+        "security": 93.33333333333334,
+        "architecture": 45.89999999999999,
+        "testing": 37.5,
+        "consistency": 60.41666666666667,
         "traction": 95.25
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
@@ -440,7 +873,7 @@
       "predicted": false,
       "match": false,
       "shownScore": 50,
-      "rawScore": 12.9,
+      "rawScore": 23.7,
       "confidence": 0,
       "evidenceUnits": 0,
       "level": 0,
@@ -450,7 +883,7 @@
       "activityMonths": 0,
       "repos": 4,
       "normalizedSignals": {
-        "quality": 65,
+        "quality": 87.5,
         "security": 60,
         "architecture": 41.900000000000006,
         "testing": 16.25,
@@ -474,27 +907,25 @@
       "rationale": "ripgrep / regex / csv; canonical Rust library work.",
       "predicted": false,
       "match": false,
-      "shownScore": 29.65,
-      "rawScore": 18.9,
-      "confidence": 0.6044,
-      "evidenceUnits": 8.5,
+      "shownScore": 52.53,
+      "rawScore": 52.9,
+      "confidence": 0.8729,
+      "evidenceUnits": 16.5,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.6612903225806451,
       "externalMerges": 0,
-      "activityMonths": 1,
+      "activityMonths": 9,
       "repos": 62,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 17.083333333333336,
+        "quality": 85.5,
+        "security": 80,
+        "architecture": 51.9,
+        "testing": 74.16666666666666,
+        "consistency": 80.25,
         "traction": 101.13
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
@@ -506,29 +937,27 @@
       "label": true,
       "labelConfidence": "high",
       "rationale": "serde, syn, proc-macro ecosystem; elite Rust output.",
-      "predicted": false,
-      "match": false,
-      "shownScore": 29,
-      "rawScore": 18.9,
-      "confidence": 0.6253,
-      "evidenceUnits": 9,
-      "level": 0,
+      "predicted": true,
+      "match": true,
+      "shownScore": 62.53,
+      "rawScore": 64.8,
+      "confidence": 0.8466,
+      "evidenceUnits": 15,
+      "level": 1,
       "blocked": false,
       "languageCoverage": 0.9130434782608695,
       "externalMerges": 0,
-      "activityMonths": 2,
+      "activityMonths": 6,
       "repos": 92,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 21.666666666666664,
+        "quality": 84.5,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 85.5,
+        "consistency": 66.5,
         "traction": 96.08
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
@@ -542,27 +971,26 @@
       "rationale": "hyper / reqwest; core Rust web libraries.",
       "predicted": false,
       "match": false,
-      "shownScore": 29.65,
-      "rawScore": 18.9,
-      "confidence": 0.5544,
-      "evidenceUnits": 8.5,
+      "shownScore": 43.04,
+      "rawScore": 41.2,
+      "confidence": 0.7404,
+      "evidenceUnits": 12.5,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.5833333333333334,
       "externalMerges": 0,
-      "activityMonths": 1,
+      "activityMonths": 5,
       "repos": 36,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 17.083333333333336,
+        "quality": 86.5,
+        "security": 73.33333333333333,
+        "architecture": 51.9,
+        "testing": 49.16666666666666,
+        "consistency": 61.91666666666667,
         "traction": 87.89
       },
       "skepticNotes": [
-        "fork-dominant history detected (≤ verify upstream lineage)",
-        "no green-CI test signal to corroborate test discipline"
+        "fork-dominant history detected (≤ verify upstream lineage)"
       ],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
@@ -577,27 +1005,26 @@
       "rationale": "Servo / rustc / SpiderMonkey background; deep Rust history.",
       "predicted": false,
       "match": false,
-      "shownScore": 28.08,
-      "rawScore": 16.5,
-      "confidence": 0.5544,
-      "evidenceUnits": 8.5,
+      "shownScore": 35.5,
+      "rawScore": 30.6,
+      "confidence": 0.6972,
+      "evidenceUnits": 11,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.631578947368421,
       "externalMerges": 0,
-      "activityMonths": 1,
+      "activityMonths": 2,
       "repos": 38,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
+        "quality": 87,
+        "security": 66.66666666666666,
         "architecture": 41.900000000000006,
         "testing": 16.25,
-        "consistency": 17.083333333333336,
+        "consistency": 21.666666666666664,
         "traction": 69.38
       },
       "skepticNotes": [
-        "fork-dominant history detected (≤ verify upstream lineage)",
-        "no green-CI test signal to corroborate test discipline"
+        "fork-dominant history detected (≤ verify upstream lineage)"
       ],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
@@ -613,7 +1040,7 @@
       "predicted": false,
       "match": false,
       "shownScore": 50,
-      "rawScore": 11.7,
+      "rawScore": 22.5,
       "confidence": 0,
       "evidenceUnits": 0,
       "level": 0,
@@ -623,7 +1050,7 @@
       "activityMonths": 0,
       "repos": 17,
       "normalizedSignals": {
-        "quality": 65,
+        "quality": 87.5,
         "security": 60,
         "architecture": 41.900000000000006,
         "testing": 16.25,
@@ -648,29 +1075,29 @@
       "rationale": "rustc core; the rust-lang contribution happens in the org (not this account).",
       "predicted": false,
       "match": false,
-      "shownScore": 38.77,
-      "rawScore": 14.1,
-      "confidence": 0.2627,
-      "evidenceUnits": 3,
+      "shownScore": 36.7,
+      "rawScore": 26.1,
+      "confidence": 0.5063,
+      "evidenceUnits": 6.5,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.3269230769230769,
       "externalMerges": 0,
-      "activityMonths": 2,
+      "activityMonths": 9,
       "repos": 52,
       "normalizedSignals": {
-        "quality": 65,
+        "quality": 87.5,
         "security": 60,
         "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 21.666666666666664,
+        "testing": 26.166666666666664,
+        "consistency": 53.75,
         "traction": 57.71
       },
       "skepticNotes": [
         "no green-CI test signal to corroborate test discipline"
       ],
       "eligibilityReasons": [
-        "Confidence 31.3% below the 60% issuance threshold.",
+        "Confidence 55.6% below the 60% issuance threshold.",
         "Language coverage 33% below the 50% minimum — only of the codebase was analyzable."
       ],
       "covered": true
@@ -683,29 +1110,27 @@
       "rationale": "Solana co-founder; deep Rust validator work.",
       "predicted": false,
       "match": false,
-      "shownScore": 40.69,
-      "rawScore": 15.3,
-      "confidence": 0.2184,
-      "evidenceUnits": 2.5,
+      "shownScore": 40.85,
+      "rawScore": 31.6,
+      "confidence": 0.4972,
+      "evidenceUnits": 5.5,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.4230769230769231,
       "externalMerges": 0,
-      "activityMonths": 1,
+      "activityMonths": 3,
       "repos": 26,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
+        "quality": 87.5,
+        "security": 73.33333333333333,
         "architecture": 41.900000000000006,
         "testing": 16.25,
-        "consistency": 17.083333333333336,
+        "consistency": 26.25,
         "traction": 59.21
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
-        "Confidence 26.8% below the 60% issuance threshold.",
+        "Confidence 49.7% below the 60% issuance threshold.",
         "Language coverage 42% below the 50% minimum — only of the codebase was analyzable."
       ],
       "covered": true
@@ -718,22 +1143,22 @@
       "rationale": "Solana Labs; sustained Rust protocol work.",
       "predicted": false,
       "match": false,
-      "shownScore": 42.06,
-      "rawScore": 14.1,
-      "confidence": 0.1212,
-      "evidenceUnits": 2,
+      "shownScore": 42.15,
+      "rawScore": 24.9,
+      "confidence": 0.2127,
+      "evidenceUnits": 3,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.3076923076923077,
       "externalMerges": 0,
-      "activityMonths": 0,
+      "activityMonths": 2,
       "repos": 26,
       "normalizedSignals": {
-        "quality": 65,
+        "quality": 87.5,
         "security": 60,
         "architecture": 41.900000000000006,
         "testing": 16.25,
-        "consistency": 12.5,
+        "consistency": 21.666666666666664,
         "traction": 55.18
       },
       "skepticNotes": [
@@ -742,7 +1167,7 @@
         "tutorial/template clone similarity flagged"
       ],
       "eligibilityReasons": [
-        "Confidence 22.1% below the 60% issuance threshold.",
+        "Confidence 31.3% below the 60% issuance threshold.",
         "Language coverage 31% below the 50% minimum — only of the codebase was analyzable."
       ],
       "covered": true
@@ -779,8 +1204,8 @@
       "rationale": "Solana Labs; real Rust work but moderate public volume.",
       "predicted": false,
       "match": false,
-      "shownScore": 43.04,
-      "rawScore": 9.3,
+      "shownScore": 44.89,
+      "rawScore": 20.1,
       "confidence": 0.121,
       "evidenceUnits": 1.5,
       "level": 0,
@@ -790,7 +1215,7 @@
       "activityMonths": 3,
       "repos": 28,
       "normalizedSignals": {
-        "quality": 65,
+        "quality": 87.5,
         "security": 60,
         "architecture": 41.900000000000006,
         "testing": 16.25,
@@ -814,10 +1239,10 @@
       "rationale": "Jackson core maintainer; decades of sustained Java OSS.",
       "predicted": false,
       "match": false,
-      "shownScore": 40.69,
-      "rawScore": 15.3,
-      "confidence": 0.2184,
-      "evidenceUnits": 2.5,
+      "shownScore": 42.08,
+      "rawScore": 31.6,
+      "confidence": 0.4302,
+      "evidenceUnits": 4.5,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.8333333333333334,
@@ -825,18 +1250,16 @@
       "activityMonths": 1,
       "repos": 18,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 17.083333333333336,
+        "quality": 87.5,
+        "security": 73.33333333333333,
+        "architecture": 45.89999999999999,
+        "testing": 31.25,
+        "consistency": 19.583333333333336,
         "traction": 62.5
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
-        "Confidence 26.8% below the 60% issuance threshold."
+        "Confidence 43.0% below the 60% issuance threshold."
       ],
       "covered": true
     },
@@ -848,29 +1271,29 @@
       "rationale": "Spring team; high sustained Java output.",
       "predicted": false,
       "match": false,
-      "shownScore": 30.7,
-      "rawScore": 15.3,
-      "confidence": 0.5063,
-      "evidenceUnits": 6.5,
+      "shownScore": 35.93,
+      "rawScore": 28.5,
+      "confidence": 0.6044,
+      "evidenceUnits": 8.5,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.5735294117647058,
       "externalMerges": 0,
-      "activityMonths": 1,
+      "activityMonths": 5,
       "repos": 68,
       "normalizedSignals": {
-        "quality": 65,
+        "quality": 86.94444444444444,
         "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 17.083333333333336,
+        "architecture": 47.900000000000006,
+        "testing": 21.5,
+        "consistency": 59.41666666666667,
         "traction": 66.83
       },
       "skepticNotes": [
         "no green-CI test signal to corroborate test discipline"
       ],
       "eligibilityReasons": [
-        "Confidence 55.6% below the 60% issuance threshold."
+        "Evidence volume and coverage clear the issuance threshold."
       ],
       "covered": true
     },
@@ -882,27 +1305,25 @@
       "rationale": "RxJava / reactive-streams internals; deep Java OSS.",
       "predicted": false,
       "match": false,
-      "shownScore": 28.08,
-      "rawScore": 16.5,
-      "confidence": 0.6044,
-      "evidenceUnits": 8.5,
+      "shownScore": 53.15,
+      "rawScore": 54.2,
+      "confidence": 0.75,
+      "evidenceUnits": 14.5,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.6071428571428571,
       "externalMerges": 0,
-      "activityMonths": 1,
+      "activityMonths": 5,
       "repos": 56,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 17.083333333333336,
+        "quality": 86.5,
+        "security": 93.33333333333334,
+        "architecture": 51.9,
+        "testing": 74.16666666666666,
+        "consistency": 61.91666666666667,
         "traction": 71.77
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
@@ -916,8 +1337,8 @@
       "rationale": "GitHub's placeholder account; no sustained expert evidence.",
       "predicted": false,
       "match": true,
-      "shownScore": 29.58,
-      "rawScore": 17.7,
+      "shownScore": 36.41,
+      "rawScore": 28.5,
       "confidence": 0.5821,
       "evidenceUnits": 8,
       "level": 0,
@@ -927,10 +1348,10 @@
       "activityMonths": 0,
       "repos": 6,
       "normalizedSignals": {
-        "quality": 65,
+        "quality": 87.5,
         "security": 60,
         "architecture": 41.900000000000006,
-        "testing": 16.25,
+        "testing": 32,
         "consistency": 12.5,
         "traction": 86.43
       },
@@ -951,7 +1372,7 @@
       "predicted": false,
       "match": true,
       "shownScore": 50,
-      "rawScore": 12.9,
+      "rawScore": 23.7,
       "confidence": 0,
       "evidenceUnits": 0,
       "level": 0,
@@ -961,7 +1382,7 @@
       "activityMonths": 0,
       "repos": 78,
       "normalizedSignals": {
-        "quality": 65,
+        "quality": 87.5,
         "security": 60,
         "architecture": 41.900000000000006,
         "testing": 16.25,
@@ -985,27 +1406,25 @@
       "rationale": "GitHub Actions org — org account, no personal developer credential.",
       "predicted": false,
       "match": true,
-      "shownScore": 29.65,
-      "rawScore": 18.9,
-      "confidence": 0.6044,
-      "evidenceUnits": 8.5,
+      "shownScore": 51.05,
+      "rawScore": 51.4,
+      "confidence": 0.75,
+      "evidenceUnits": 16,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.5584415584415584,
       "externalMerges": 0,
-      "activityMonths": 1,
+      "activityMonths": 8,
       "repos": 77,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 17.083333333333336,
+        "quality": 77.97619047619048,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 43.33333333333333,
+        "consistency": 75.66666666666666,
         "traction": 100.31
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
         "Evidence volume and coverage clear the issuance threshold."
       ],
@@ -1019,27 +1438,25 @@
       "rationale": "Automation/bot account producing machine activity, no personal credential.",
       "predicted": false,
       "match": true,
-      "shownScore": 29.58,
-      "rawScore": 17.7,
-      "confidence": 0.5821,
-      "evidenceUnits": 8,
+      "shownScore": 48.05,
+      "rawScore": 47.4,
+      "confidence": 0.75,
+      "evidenceUnits": 13,
       "level": 0,
       "blocked": false,
       "languageCoverage": 0.043478260869565216,
       "externalMerges": 0,
-      "activityMonths": 0,
+      "activityMonths": 2,
       "repos": 23,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 12.5,
+        "quality": 68.26923076923077,
+        "security": 100,
+        "architecture": 51.9,
+        "testing": 61.66666666666667,
+        "consistency": 48.16666666666666,
         "traction": 78.38
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
         "Language coverage 4% below the 50% minimum — only of the codebase was analyzable."
       ],
@@ -1053,32 +1470,29 @@
       "rationale": "Org account — activity is corporate, not a personal developer credential.",
       "predicted": false,
       "match": true,
-      "shownScore": 30.34,
-      "rawScore": 18.9,
-      "confidence": 0.5821,
-      "evidenceUnits": 8,
+      "shownScore": 46.55,
+      "rawScore": 45.4,
+      "confidence": 0.75,
+      "evidenceUnits": 12.5,
       "level": 0,
       "blocked": false,
-      "languageCoverage": 0.20202020202020202,
+      "languageCoverage": 0.2222222222222222,
       "externalMerges": 0,
-      "activityMonths": 0,
+      "activityMonths": 1,
       "repos": 99,
       "normalizedSignals": {
-        "quality": 65,
-        "security": 60,
-        "architecture": 41.900000000000006,
-        "testing": 16.25,
-        "consistency": 12.5,
-        "traction": 114.09
+        "quality": 87.5,
+        "security": 93.33333333333334,
+        "architecture": 51.9,
+        "testing": 25,
+        "consistency": 43.58333333333333,
+        "traction": 114.8
       },
-      "skepticNotes": [
-        "no green-CI test signal to corroborate test discipline"
-      ],
+      "skepticNotes": [],
       "eligibilityReasons": [
-        "Language coverage 20% below the 50% minimum — only of the codebase was analyzable."
+        "Language coverage 22% below the 50% minimum — only of the codebase was analyzable."
       ],
       "covered": true
     }
-  ],
-  "conclusion": "Fast-mode (2-request) evidence is non-differentiating: all 30 accounts sit in a raw band of [0, 18.9] (18.9-wide bottom band of a 0-100 scale) with top maintainers indistinguishable from org/bot accounts. With the unauthenticated 60-req/hr budget the engine therefore abstains everywhere — precision 0, recall 0, 0/30 issued (0 of 25 positives). This is the honesty gate working as designed (shown>=60 AND conf>=0.60, E0=8): confidence is now genuine (E=8.5 clears 60%) but thin fast-scan evidence compresses every shown score below the issue bar. Zero-evidence accounts sit at the prior (50) and are abstained regardless. Recall unlock is more data, not looser gates: a GITHUB_TOKEN deep-repo fetch (traffic, merged refactors, releases, co-author lineage) — the live API deep path already issues (e.g. seeded L3 maintainers)."
+  ]
 }

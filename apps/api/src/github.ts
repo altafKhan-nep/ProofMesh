@@ -50,6 +50,7 @@ interface GhRepo {
   full_name: string;
   owner: { login: string };
   fork: boolean;
+  archived: boolean;
   language: string | null;
   stargazers_count: number;
   default_branch: string;
@@ -59,6 +60,22 @@ interface GhRepo {
 interface GhRelease {
   draft: boolean;
   prerelease: boolean;
+}
+
+/** Head commit of the default branch: sha (for check-runs) + signature verification. */
+interface GhCommit {
+  sha: string;
+  commit?: { verification?: { verified?: boolean; reason?: string } };
+}
+
+interface GhTree {
+  tree?: { path: string; type: string }[];
+  truncated?: boolean;
+}
+
+interface GhCheckRuns {
+  total_count?: number;
+  check_runs?: { conclusion?: string | null }[];
 }
 
 interface GhEvent {
@@ -128,6 +145,54 @@ async function ghFetchPageCount(path: string): Promise<number> {
   return commitCountFromLink(link) || (await res.json()).length || 0;
 }
 
+/** One commits call yields both the page count (Link header) and the head commit. */
+async function ghFetchHeadCommit(path: string): Promise<{ count: number; head: GhCommit | null }> {
+  const res = await fetch(`${GITHUB_API}${path}`, { headers: GH_HEADERS });
+  if (!res.ok) return { count: 0, head: null };
+  const count = commitCountFromLink(res.headers.get('link'));
+  const body = (await res.json()) as GhCommit[];
+  const head = Array.isArray(body) ? (body[0] ?? null) : null;
+  return { count: count || (Array.isArray(body) ? body.length : 0), head };
+}
+
+/** Test-discipline signal from the recursive tree (one call): test files + source files. */
+const TEST_PATH_RE = /(^|\/)(tests?|__tests__|spec)\//i;
+const TEST_FILE_RE = /\.(test|spec)\.[cm]?[jt]sx?$/i;
+const SOURCE_EXT_RE = /\.(ts|tsx|js|jsx|mjs|cjs|rs|go|py|java|kt|rb|c|cpp|cc|cxx|h|hpp|sol|ts|rs)$/i;
+
+async function ghFetchTreeStats(
+  fullName: string,
+  branch: string
+): Promise<{ testFiles: number; sourceFiles: number }> {
+  try {
+    const tree = await ghFetch<GhTree>(
+      `/repos/${fullName}/git/trees/${encodeURIComponent(branch)}?recursive=1`
+    );
+    const blobs = (tree.tree ?? []).filter((n) => n.type === 'blob');
+    const testFiles = blobs.filter(
+      (n) => TEST_PATH_RE.test(n.path) || TEST_FILE_RE.test(n.path)
+    ).length;
+    const sourceFiles = blobs.filter(
+      (n) => !TEST_PATH_RE.test(n.path) && !TEST_FILE_RE.test(n.path) && SOURCE_EXT_RE.test(n.path)
+    ).length;
+    return { testFiles, sourceFiles };
+  } catch {
+    return { testFiles: 0, sourceFiles: 0 };
+  }
+}
+
+/** CI signal: head commit has check-runs and none failed. */
+async function ghFetchCiGreen(fullName: string, sha: string): Promise<boolean> {
+  try {
+    const runs = await ghFetch<GhCheckRuns>(`/repos/${fullName}/commits/${sha}/check-runs`);
+    const list = runs.check_runs ?? [];
+    if (!list.length) return false;
+    return list.every((r) => r.conclusion === 'success' || r.conclusion === 'neutral' || r.conclusion === 'skipped');
+  } catch {
+    return false;
+  }
+}
+
 function monthKey(t: string): string {
   return t.slice(0, 7);
 }
@@ -163,12 +228,29 @@ export async function ingestGitHub(
 
   const commitCounts = new Map<string, number>();
   const releaseCounts = new Map<string, number>();
+  const testCounts = new Map<string, number>();
+  const sourceCounts = new Map<string, number>();
+  const ciGreenByRepo = new Map<string, boolean>();
+  const verifiedCommits: { total: number; verified: number }[] = [];
   await Promise.all(
     detail.map(async (r) => {
-      commitCounts.set(
-        r.full_name,
-        await ghFetchPageCount(`/repos/${r.full_name}/commits?per_page=1`)
-      );
+      const head = await ghFetchHeadCommit(`/repos/${r.full_name}/commits?per_page=1`);
+      commitCounts.set(r.full_name, head.count);
+      if (head.head) {
+        const v = head.head.commit?.verification;
+        if (v) verifiedCommits.push({ total: 1, verified: v.verified === true ? 1 : 0 });
+        const [tree, ciGreen] = await Promise.all([
+          ghFetchTreeStats(r.full_name, r.default_branch),
+          ghFetchCiGreen(r.full_name, head.head.sha)
+        ]);
+        testCounts.set(r.full_name, tree.testFiles);
+        sourceCounts.set(r.full_name, tree.sourceFiles);
+        ciGreenByRepo.set(r.full_name, ciGreen);
+      } else {
+        testCounts.set(r.full_name, 0);
+        sourceCounts.set(r.full_name, 0);
+        ciGreenByRepo.set(r.full_name, false);
+      }
       try {
         const rels = await ghFetch<GhRelease[]>(`/repos/${r.full_name}/releases?per_page=100`);
         releaseCounts.set(
@@ -195,8 +277,10 @@ export async function ingestGitHub(
     snapshotAt: new Date(r.pushed_at).toISOString(),
     commitCount: commitCounts.get(r.full_name) ?? 0,
     prCount: 0,
-    testFileCount: 0,
-    ciGreen: false
+    testFileCount: testCounts.get(r.full_name) ?? 0,
+    sourceFileCount: sourceCounts.get(r.full_name) ?? 0,
+    ciGreen: ciGreenByRepo.get(r.full_name) ?? false,
+    inspected: testCounts.has(r.full_name)
   }));
 
   // Traction evidence — free star data from the repos list (round-2 signal).
@@ -217,12 +301,32 @@ export async function ingestGitHub(
 
   const months = new Set<string>();
   for (const e of events) months.add(monthKey(e.created_at));
-  const activityMonths = Math.min(12, months.size);
+  const eventMonths = months.size;
+
+  // Portfolio continuity (free, from the repos list we already fetched): distinct
+  // months in which the account last pushed an owned, non-fork repo within the
+  // last year. The 100-event feed only spans days, so it alone understates
+  // long-lived maintainers and flattens everyone to 1 month.
+  const pushMonths = new Set<string>();
+  const oneYearAgo = Date.now() - 365 * 24 * 60 * 60 * 1000;
+  for (const r of owned) {
+    if (r.fork) continue;
+    const t = new Date(r.pushed_at).getTime();
+    if (Number.isFinite(t) && t >= oneYearAgo) pushMonths.add(monthKey(r.pushed_at));
+  }
+  const activityMonths = Math.min(12, Math.max(eventMonths, pushMonths.size));
 
   const evidence: EvidenceItem[] = [];
   for (let i = 0; i < activityMonths; i++) {
     evidence.push(
-      liveEv(username, 'ACTIVITY_MONTH', `Sustained public activity — month ${i + 1} (GitHub event feed).`, '', null, 1)
+      liveEv(
+        username,
+        'ACTIVITY_MONTH',
+        `Sustained public activity — month ${i + 1} (${pushMonths.size} repo-push months / ${eventMonths} event-feed months in the last year).`,
+        '',
+        null,
+        1
+      )
     );
   }
 
@@ -260,6 +364,55 @@ export async function ingestGitHub(
         r.full_name,
         r.full_name,
         r.stargazers_count
+      )
+    );
+  }
+
+  // Test discipline (deep mode only): repos with real test files AND green CI on head.
+  const testSignalRepos = detail.filter(
+    (r) => (testCounts.get(r.full_name) ?? 0) > 0 && ciGreenByRepo.get(r.full_name) === true
+  );
+  if (testSignalRepos.length > 0) {
+    const total = verifiedCommits.reduce((a, c) => a + c.total, 0);
+    const verified = verifiedCommits.filter((c) => c.verified).length;
+    const testFiles = detail.reduce((a, r) => a + (testCounts.get(r.full_name) ?? 0), 0);
+    const sourceFiles = detail.reduce((a, r) => a + (sourceCounts.get(r.full_name) ?? 0), 0);
+    const density = testFiles + sourceFiles > 0 ? testFiles / (testFiles + sourceFiles) : 0;
+    evidence.push(
+      liveEv(
+        username,
+        'REPO_TESTS_GREEN_CI',
+        `${testSignalRepos.length}/${detail.length} inspected repos have test files and green CI on the head commit; test-file density ${(density * 100).toFixed(1)}% of ${testFiles + sourceFiles} source files${total > 0 ? `; ${verified}/${total} head commits carry a verified signature` : ''}.`,
+        'repo-detail',
+        'test-discipline',
+        testSignalRepos.length
+      )
+    );
+    if (total > 0 && verified > 0) {
+      evidence.push(
+        liveEv(
+          username,
+          'SIGNED_COMMIT_RATIO',
+          `${verified}/${total} inspected head commits carry a verified signature.`,
+          'repo-detail',
+          'signed-commits',
+          verified / total
+        )
+      );
+    }
+  }
+
+  // Survival proxy: owned repos that are NOT archived (archival is a death signal).
+  if (owned.length >= 3) {
+    const alive = owned.filter((r) => !r.archived).length;
+    evidence.push(
+      liveEv(
+        username,
+        'CODE_SURVIVAL',
+        `${alive}/${owned.length} owned repos remain un-archived (archival rate as a maintenance-death proxy).`,
+        'repos-list',
+        'survival',
+        alive / owned.length
       )
     );
   }

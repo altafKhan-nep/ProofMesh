@@ -312,7 +312,7 @@ export function languageCoverageOf(repos: { primaryLanguage: string | null; isFo
 
 export function signalsFromEvidence(
   skillId: SkillId,
-  repos: { primaryLanguage: string | null; isFork: boolean; testFileCount: number; ciGreen: boolean; commitCount: number; starsAtSnapshot?: number }[],
+  repos: { primaryLanguage: string | null; isFork: boolean; testFileCount: number; ciGreen: boolean; commitCount: number; starsAtSnapshot?: number; inspected?: boolean }[],
   evidence: EvidenceItem[]
 ): DimensionSignals {
   const external = evidence.filter((e) => e.type === 'EXTERNAL_MERGE' && e.positive).length;
@@ -325,9 +325,13 @@ export function signalsFromEvidence(
   const survival = evidence.find((e) => e.type === 'CODE_SURVIVAL')?.value;
   const negTest = evidence.find((e) => e.metricName === 'negative_test_ratio')?.value ?? 0;
   const win = repos.filter((r) => !r.isFork);
-  const withTests = win.filter((r) => r.testFileCount > 0 && r.ciGreen).length;
-  const testCoverage = win.length ? withTests / win.length : 0;
-  const ciGreenRate = win.length ? win.filter((r) => r.ciGreen).length / win.length : 0;
+  // Test/CI signals are only meaningful where deep ingest actually inspected the
+  // tree + head-commit checks; measure over that subset, not every listed repo.
+  const inspected = win.filter((r) => r.inspected);
+  const testScope = inspected.length > 0 ? inspected : win;
+  const withTests = testScope.filter((r) => r.testFileCount > 0 && r.ciGreen).length;
+  const testCoverage = testScope.length ? withTests / testScope.length : 0;
+  const ciGreenRate = testScope.length ? testScope.filter((r) => r.ciGreen).length / testScope.length : 0;
   const releases = evidence
     .filter((e) => e.type === 'RELEASE' && e.positive)
     .reduce((a, e) => a + (e.value ?? 1), 0);

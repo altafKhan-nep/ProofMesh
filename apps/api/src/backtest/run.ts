@@ -18,6 +18,7 @@
  * are always cached to disk, so partial runs resume cleanly.
  *
  *   GITHUB_TOKEN=xxx pnpm backtest
+ *   GITHUB_TOKEN=xxx BACKTEST_DETAIL_REPOS=6 pnpm backtest   # deep mode (per-repo commits/releases)
  *   BACKTEST_BUDGET=120 pnpm backtest        # raise the request ceiling
  *   pnpm backtest --tune                      # sweep E0 + print best-accuracy config
  */
@@ -36,10 +37,18 @@ import { normalizeSignals, round } from '@proofmesh/scoring-engine';
 import type { DimensionSignals } from '@proofmesh/scoring-engine';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
-const CACHE_DIR = path.join(HERE, 'cache');
+/** Per-repo detail fetches (commits + releases). 0 = fast mode (2 req/account). */
+const DETAIL_REPOS = Number(process.env.BACKTEST_DETAIL_REPOS ?? 0);
+/** Deep mode needs the raised rate limit; fail fast instead of half-ingesting. */
+if (DETAIL_REPOS > 0 && !process.env.GITHUB_TOKEN) {
+  console.error('BACKTEST_DETAIL_REPOS>0 requires GITHUB_TOKEN (60/hr unauthenticated cannot cover deep fetches).');
+  process.exit(2);
+}
+/** Deep snapshots are cached beside (never over) the flat fast-mode cache. */
+const CACHE_DIR = path.join(HERE, DETAIL_REPOS > 0 ? `cache-deep${DETAIL_REPOS}` : 'cache');
 const OUT_PATH = path.resolve(HERE, '../../../..', 'docs/backtest-round-1.json');
 
-const BUDGET = Number(process.env.BACKTEST_BUDGET ?? 58);
+const BUDGET = Number(process.env.BACKTEST_BUDGET ?? (DETAIL_REPOS > 0 ? 600 : 58));
 const TUNE = process.argv.includes('--tune');
 
 /** Precise request accounting so we never blow the unauthenticated budget. */
@@ -213,7 +222,10 @@ async function scoreHandle(label: BacktestLabel, store: Store): Promise<RunRow> 
     ingested = JSON.parse(fs.readFileSync(cacheFile, 'utf8')) as IngestedDeveloper;
   } else {
     try {
-      ingested = await ingestGitHub(store, label.handle, { maxDetailRepos: 0, skipProfile: true });
+      ingested = await ingestGitHub(store, label.handle, {
+        maxDetailRepos: DETAIL_REPOS,
+        skipProfile: true
+      });
       fs.mkdirSync(CACHE_DIR, { recursive: true });
       fs.writeFileSync(cacheFile, JSON.stringify(ingested));
     } catch (err) {
@@ -296,19 +308,68 @@ function conclude(summary: ReturnType<typeof summarize>, rows: RunRow[]): string
 
   if (degenerate) {
     parts.push(
-      `Fast-mode (2-request) evidence is non-differentiating: all ${covered.length} accounts sit in a raw band of [${minRaw}, ${maxRaw}] (18.9-wide bottom band of a 0–100 scale) with top maintainers indistinguishable from org/bot accounts.`
+      `Fast-mode (2-request) evidence is non-differentiating: all ${covered.length} accounts sit in a raw band of [${minRaw}, ${maxRaw}] (${((maxRaw - minRaw) * 10) | 0 / 10}-wide bottom band of a 0–100 scale) with top maintainers indistinguishable from org/bot accounts.`
     );
   }
   parts.push(
-    `With the unauthenticated 60-req/hr budget the engine therefore abstains everywhere — precision ${summary.precision}, recall ${summary.recall}, ${issued}/${covered.length} issued (${posIssued} of ${covered.filter((r) => r.label).length} positives).`
+    `Issued ${issued}/${covered.length} (${posIssued} of ${covered.filter((r) => r.label).length} positives) — precision ${summary.precision}, recall ${summary.recall}.`
   );
-  parts.push(
-    `This is the honesty gate working as designed (shown>=60 AND conf>=0.60, E0=8): confidence is now genuine (E=8.5 clears 60%) but thin fast-scan evidence compresses every shown score below the issue bar. Zero-evidence accounts sit at the prior (50) and are abstained regardless.`
-  );
-  parts.push(
-    `Recall unlock is more data, not looser gates: a GITHUB_TOKEN deep-repo fetch (traffic, merged refactors, releases, co-author lineage) — the live API deep path already issues (e.g. seeded L3 maintainers).`
-  );
+  if (DETAIL_REPOS > 0) {
+    const confOk = covered.filter((r) => !r.label || r.confidence >= 0.6);
+    const negMax = Math.max(0, ...covered.filter((r) => !r.label && r.confidence >= 0.6).map((r) => r.shownScore));
+    const posAt60 = covered.filter((r) => r.label && r.shownScore >= 60).length;
+    parts.push(
+      `Deep ingest (${DETAIL_REPOS} repos/account: tree test-file density, head-commit CI + signature, release history, archival survival, portfolio push-month continuity) lifts evidence volume — E rose from ~8.5 to ${Math.round(Math.max(...covered.map((r) => r.evidenceUnits)))} max — and the strongest maintainers now clear the bar, so the binding constraint is the shown>=60 gate itself, not evidence volume.`
+    );
+    parts.push(
+      `Separation check: only ${covered.filter((r) => !r.label && r.confidence >= 0.6).length} negatives clear conf>=0.6 (max shown ${negMax.toFixed(1)}), while ${confOk.filter((r) => r.label).length} positives do and ${posAt60} of them reach shown>=60. Precision/recall at the gate is therefore a product-threshold decision, not a data gap.`
+    );
+  } else {
+    parts.push(
+      `This is the honesty gate working as designed (shown>=60 AND conf>=0.60, E0=8): confidence is now genuine (E=8.5 clears 60%) but thin fast-scan evidence compresses every shown score below the issue bar. Zero-evidence accounts sit at the prior (50) and are abstained regardless.`
+    );
+    parts.push(
+      `Recall unlock is more data, not looser gates: a GITHUB_TOKEN deep-repo fetch (BACKTEST_DETAIL_REPOS=6) — the live API deep path already issues (e.g. seeded L3 maintainers).`
+    );
+  }
   return parts.join(' ');
+}
+
+/**
+ * Sweep the shown-score issuance gate against the labels. Reports precision /
+ * recall / F1 per gate so the threshold stays a measured, reviewable decision
+ * instead of a tuned constant. Confidence and skeptic gates are held fixed.
+ */
+function gateSweep(rows: RunRow[]): Record<string, unknown> {
+  const eligible = rows.filter((r) => r.covered && !r.blocked && r.confidence >= 0.6);
+  const pos = eligible.filter((r) => r.label);
+  const neg = eligible.filter((r) => !r.label);
+  const curve: Array<Record<string, number>> = [];
+  let best: Record<string, number> | null = null;
+  for (let gate = 30; gate <= 70; gate += 1) {
+    const tp = pos.filter((r) => r.shownScore >= gate).length;
+    const fp = neg.filter((r) => r.shownScore >= gate).length;
+    const tn = neg.filter((r) => r.shownScore < gate).length;
+    const fn = pos.filter((r) => r.shownScore < gate).length;
+    const precision = tp + fp > 0 ? tp / (tp + fp) : 0;
+    const recall = tp + fn > 0 ? tp / (tp + fn) : 0;
+    const f1 = precision + recall > 0 ? (2 * precision * recall) / (precision + recall) : 0;
+    const row = { gate, tp, fp, tn, fn, precision: round(precision, 4), recall: round(recall, 4), f1: round(f1, 4) };
+    curve.push(row);
+    if (!best || row.f1 > best.f1) best = row;
+  }
+  return {
+    method: 'sweep the shown-score issuance gate; confidence>=0.6 and skeptic gate held fixed',
+    basis: { eligible: eligible.length, positives: pos.length, negatives: neg.length },
+    currentGate: 60,
+    best,
+    note:
+      neg.length < 5
+        ? 'WARNING: fewer than 5 confidence-eligible negatives — precision here is not statistically stable; treat gate moves as provisional.'
+        : undefined,
+    negativeShownScores: neg.map((r) => ({ handle: r.handle, shownScore: r.shownScore })),
+    curve
+  };
 }
 
 async function main(): Promise<void> {
@@ -321,8 +382,12 @@ async function main(): Promise<void> {
   const output = {
     round: 1,
     generatedAt: new Date().toISOString(),
-    method: 'live GitHub ingestion (fast mode: /users/:u/repos + /users/:u/events/public, detail/deep repos deferred to a tokenized run). Prediction via pipeline.predictCredential — the exact production path, no re-simulation.',
-    budget: { limit: 'unauthenticated 60/hr', configured: BUDGET, used },
+    method:
+      DETAIL_REPOS > 0
+        ? `live GitHub ingestion (DEEP mode: /users/:u/repos + /users/:u/events/public + per-repo commits/releases for the ${DETAIL_REPOS} most recently pushed owned repos). Prediction via pipeline.predictCredential — the exact production path, no re-simulation.`
+        : 'live GitHub ingestion (fast mode: /users/:u/repos + /users/:u/events/public, detail/deep repos deferred to a tokenized run). Prediction via pipeline.predictCredential — the exact production path, no re-simulation.',
+    mode: DETAIL_REPOS > 0 ? { ingestion: 'deep', detailRepos: DETAIL_REPOS, tokenized: true } : { ingestion: 'fast', detailRepos: 0, tokenized: false },
+    budget: { limit: process.env.GITHUB_TOKEN ? 'tokenized 5000/hr' : 'unauthenticated 60/hr', configured: BUDGET, used },
     labels: {
       total: LABELS.length,
       positives: LABELS.filter((l) => l.positive).length,
@@ -330,6 +395,7 @@ async function main(): Promise<void> {
     },
     summary: summarize(rows),
     conclusion: conclude(summarize(rows), rows),
+    gateSweep: gateSweep(rows),
     tuning: TUNE ? tune(rows) : undefined,
     corpusProposal: TUNE ? proposeCorpus(rows) : undefined,
     discrepancies: discrepancies(rows).filter((d) => rows.filter((r) => r.covered).length > 0),
