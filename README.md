@@ -59,9 +59,12 @@ accounts and reports precision / recall / accuracy against the labels — the
   (git-ignored), so re-runs and tuning passes are free.
 - Unauthenticated GitHub is 60 req/hr; fast mode costs 2 requests/account, so a
   single window covers the full 30. Set `GITHUB_TOKEN=…` (5k/hr) to lift the cap
-  and enable deep-repo detail fetches: `BACKTEST_BUDGET=500 pnpm backtest --tune`.
+  and enable deep-repo detail fetches: `BACKTEST_DETAIL_REPOS=6 pnpm backtest`.
 - Output: `docs/backtest-round-1.json` — confusion matrix, per-account rows,
-  E0 tuning curve, and a data-derived reference-corpus proposal.
+  E0 tuning curve, gate sweep, and a data-derived reference-corpus proposal.
+- Each run self-documents a mode-aware `#conclusion` plus a `#gateSweep`
+  (precision/recall/F1 across issuance gates, with a warning when fewer than
+  five confidence-eligible negatives make precision statistically unstable).
 
 **Round-2 signals (shipped):** the back-test proved the 2-request public scan
 flattened every dimension, and confidence was structurally capped at ~11% by
@@ -75,17 +78,28 @@ credential even with sufficient confidence.
 **Full 30/30 round-2 validation (complete):** `pnpm backtest` ran the entire
 hand-labeled 30-account corpus on one fresh unauthenticated window (58/60
 requests, zero rate-limit truncation). Result: **recall 0, precision 0, accuracy
-0.167** — the engine issued to none of the 25 positive maintainers. Root cause
-(document auto-written into `docs/backtest-round-1.json#conclusion`): the
-2-request public scan is non-differentiating — all 30 accounts land in an
+0.167** — the engine issued to none of the 25 positive maintainers. Root cause:
+the 2-request public scan is non-differentiating — all 30 accounts land in an
 18.9-unit raw-score band (`[0, 18.9]` of 0–100) with top maintainers
 indistinguishable from org/bot accounts. The honesty gates did exactly their job
 (E0=8 makes confidence genuine — `sindresorhus` clears 60% — but thin fast-scan
 evidence compresses every shown score below the `≥60` issue bar; traction
-correctly *rejects* high-star orgs). Issuance recall requires **more data, not
-looser gates**: a `GITHUB_TOKEN` deep-repo fetch (traffic, merged refactors,
-releases, co-author lineage) — the live API deep path already issues (seeded L3
-maintainers). Crunched profiles are disk-cached (29/30) for that run.
+correctly *rejects* high-star orgs).
+
+**Deep ingest (`GITHUB_TOKEN` + `BACKTEST_DETAIL_REPOS=6`):** the flatness was
+partly a *capture* bug — `ingestGitHub` hardcoded `testFileCount: 0` /
+`ciGreen: false`, never emitted `CODE_SURVIVAL`/`SIGNED_COMMIT_RATIO`, measured
+test coverage over all listed repos instead of inspected ones, and derived
+activity months from a 100-event feed that only spans days. Deep mode walks each
+repo's tree (test-file density), head commit (CI check-runs + signature
+verification), release history, archival ratio, and the push-month spread of the
+owned-repo portfolio. Measured 30/30 (751 requests): **first true positive**
+(`dtolnay`, shown 62.5, conf 0.85) with **zero false positives**; evidence volume
+rose from E≈8.5 to E 14–18. The remaining recall gap is the issuance bar itself:
+confidence-eligible negatives top out at shown 51.0, so a gate at 52 measures
+precision 1.0 / recall 0.44. That is a product-threshold call, and the sweep
+warns it rests on only 3 eligible negatives — provisional until the negative class
+is widened (org/bot/teacher accounts).
 
 ## API surface
 
