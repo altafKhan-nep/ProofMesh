@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import Link from 'next/link';
 import type { CandidateDeveloper, Listing } from '@proofmesh/shared-types';
 import { api } from '../../lib/api';
+import { useAuth } from '../../lib/auth';
 import { SKILL_OPTIONS, skillLabel } from '../../lib/constants';
 import { GlobalHeader } from '../../components/GlobalHeader';
 import { GlobalFooter } from '../../components/GlobalFooter';
@@ -27,6 +28,8 @@ export default function SponsorsPage() {
   const [searching, setSearching] = useState(false);
   const [notice, setNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [selectedListing, setSelectedListing] = useState<string>('');
+  const { session, isAdmin } = useAuth();
+  const token = session?.token;
 
   useEffect(() => {
     api.listings().then(setListings).catch(() => setListings([]));
@@ -54,8 +57,12 @@ export default function SponsorsPage() {
       setNotice({ kind: 'err', text: 'Select a listing to invite from.' });
       return;
     }
+    if (!isAdmin) {
+      setNotice({ kind: 'err', text: 'Admin sign-in required to invite candidates.' });
+      return;
+    }
     try {
-      await api.post('/api/invite', { listingId: selectedListing, githubHandle: handle });
+      await api.post('/api/invite', { listingId: selectedListing, githubHandle: handle }, { token });
       setNotice({ kind: 'ok', text: `Invite sent to @${handle}` });
     } catch (e) {
       setNotice({ kind: 'err', text: e instanceof Error ? e.message : String(e) });
@@ -63,10 +70,29 @@ export default function SponsorsPage() {
   };
 
   const genLink = async (id: string) => {
+    if (!isAdmin) {
+      setNotice({ kind: 'err', text: 'Admin sign-in required to generate verified links.' });
+      return;
+    }
     try {
-      const { listing } = await api.post<{ listing: Listing }>(`/api/listings/${id}/verified-link`, {});
+      const { listing } = await api.post<{ listing: Listing }>(`/api/listings/${id}/verified-link`, {}, { token });
       setListings((prev) => prev.map((l) => (l.id === id ? listing : l)));
       setNotice({ kind: 'ok', text: `Verified link generated: ${listing.inviteUrl ?? ''}` });
+    } catch (e) {
+      setNotice({ kind: 'err', text: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  const deleteListing = async (id: string) => {
+    if (!isAdmin) {
+      setNotice({ kind: 'err', text: 'Admin sign-in required to remove listings.' });
+      return;
+    }
+    try {
+      const res = await api.del<{ ok: boolean }>(`/api/listings/${id}`, token);
+      void res;
+      setNotice({ kind: 'ok', text: 'Listing removed.' });
+      setListings((prev) => prev.filter((l) => l.id !== id));
     } catch (e) {
       setNotice({ kind: 'err', text: e instanceof Error ? e.message : String(e) });
     }
@@ -90,6 +116,19 @@ export default function SponsorsPage() {
             Every candidate below carries a deterministic, on-chain credential derived from GitHub evidence — no
             self-reported résumés, no inflated scores. Search, invite, and generate verified application links.
           </p>
+          <div
+            className={`mt-3 self-start inline-flex items-center gap-2 px-3 py-1.5 rounded-lg border font-label-mono-tag text-[11px] ${
+              isAdmin
+                ? 'bg-badge-green-bg border-badge-green-border text-badge-green-text'
+                : 'bg-surface-container border-border-strong text-text-muted'
+            }`}
+          >
+            {isAdmin ? (
+              <>ADMIN CONSOLE ACTIVE — {session?.wallet}</>
+            ) : (
+              <>INVITE / VERIFIED LINK / REMOVE require admin sign-in (wallet in ADMIN_WALLETS) — use the header SIGN IN.</>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
@@ -164,10 +203,21 @@ export default function SponsorsPage() {
                       </div>
                       <button
                         onClick={() => genLink(l.id)}
-                        className="shrink-0 font-label-mono-tag text-[10px] px-2 py-1 rounded bg-badge-green-bg border border-badge-green-border text-badge-green-text hover:bg-badge-green-border transition-colors"
-                        title="Generate verified application link"
+                        disabled={!isAdmin}
+                        className="shrink-0 font-label-mono-tag text-[10px] px-2 py-1 rounded bg-badge-green-bg border border-badge-green-border text-badge-green-text hover:bg-badge-green-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        title="Generate verified application link (admin)"
                       >
                         VERIFIED LINK
+                      </button>
+                      <button
+                        onClick={() => {
+                          if (confirm('Remove this listing?')) void deleteListing(l.id);
+                        }}
+                        disabled={!isAdmin}
+                        className="shrink-0 font-label-mono-tag text-[10px] px-2 py-1 rounded bg-error-container/40 border border-error/30 text-error hover:bg-error/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        title="Remove listing (admin)"
+                      >
+                        REMOVE
                       </button>
                     </div>
                     {l.inviteUrl && (
@@ -241,7 +291,7 @@ export default function SponsorsPage() {
                       )}
                       <button
                         onClick={() => invite(d.githubHandle)}
-                        disabled={!selectedListing}
+                        disabled={!selectedListing || !isAdmin}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-primary-container hover:bg-tertiary disabled:opacity-40 text-white text-xs font-mono font-semibold transition-colors"
                       >
                         INVITE

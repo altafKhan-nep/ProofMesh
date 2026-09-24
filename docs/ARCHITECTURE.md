@@ -213,11 +213,32 @@ verify(wallet, skill, { minScore, minConfidence, issuerAllowlist })
 - `GET /badge/:wallet/:skill.svg` — embeddable badge
 - Sponsor console: `POST /search`, `POST /invite`, `POST /listings/:id/verified-link`
 
-### 10.2 On-chain
+### 10.2 Auth / admin (Epic 2 — SIWS wallet sign-in)
+
+Challenge/response delegation (SIWS-shaped message, ed25519, no passwords):
+
+1. `POST /api/auth/challenge { wallet }` → issues a 5-minute, single-use `nonce`, returns the exact `message` the wallet signs (`SiwsChallenge`).
+2. The client signs those message **bytes** (extension `window.solana.signMessage` or a demo keypair) and posts `POST /api/auth/verify { wallet, message, signature }`.
+3. Server consumes the nonce (replay-proof), verifies the ed25519 signature against the claimed base58 pubkey, and returns an opaque 256-bit bearer `token` (24h TTL) with `role`.
+4. `GET /api/auth/me` / `POST /api/auth/logout` for session introspection/revocation.
+
+Role assignment: `ADMIN_WALLETS` env (comma-separated base58) → `role: 'admin'`; everyone else `'user'`. Mint authority stays the issuer keypair — an admin wallet can operate the console but cannot mint.
+
+Route gating (Authorization header only — no cookies, CSRF-immune under dev CORS):
+
+| Route | Guard |
+|---|---|
+| `POST /api/analyze`, `POST /api/bind` | signed-in (`role: user`+) |
+| `DELETE /api/listings/:id`, `POST /api/invite`, `POST /api/listings/:id/verified-link`, `POST /api/reset` | `role: admin` |
+| Everything read-only (search, developers, listings, verify, badge, evidence) | public |
+
+Session storage is in-memory (`Store.sessions`, same swap-ready seam as the rest of Store → Postgres/Redis). Demo posture: the web header can sign in with a deterministic demo keypair (`proofmesh-demo-admin:v1` → `6LAvs9cZQDfaSHGDTBPpEoPNsDR2NqpxpbwpKeRumfXk`) when no extension wallet is present; set `ADMIN_WALLETS` to that address to exercise the admin console.
+
+### 10.3 On-chain
 - `claim_verified(bounty)` instruction on the gate program (Anchor)
 - Direct SAS attestation reads via RPC (no backend dependency)
 
-### 10.3 MCP server (read-only tools)
+### 10.4 MCP server (read-only tools)
 ```
 get_verified_skills(wallet | github_handle) -> [{skill, level, score, confidence, expires_at, attestation}]
 search_developers({skills[], min_score, min_confidence, min_tier, active_within_days, limit}) -> [candidate]

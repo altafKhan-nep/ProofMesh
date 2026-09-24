@@ -3,6 +3,7 @@ import cors from '@fastify/cors';
 import { Store } from './store.js';
 import { registerRoutes } from './routes.js';
 import { hydrateSeededRuns } from './hydrate.js';
+import { adminWalletsFromEnv } from './auth.js';
 
 const PORT = Number(process.env.PORT ?? 4000);
 const HOST = process.env.HOST ?? '0.0.0.0';
@@ -11,7 +12,10 @@ async function main(): Promise<void> {
   const store = new Store();
   const app = Fastify({ logger: true });
 
-  await app.register(cors, { origin: true });
+  await app.register(cors, {
+    origin: true,
+    allowedHeaders: ['content-type', 'authorization']
+  });
 
   app.addContentTypeParser('application/json', { parseAs: 'string' }, (_req, body, done) => {
     try {
@@ -21,7 +25,7 @@ async function main(): Promise<void> {
     }
   });
 
-  await registerRoutes(app, { store });
+  await registerRoutes(app, { store, adminWallets: adminWalletsFromEnv() });
 
   // Hydrate seeded developers with real (deterministic) score + credential
   // records so the public verify page, badges and sponsor console are live

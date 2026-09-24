@@ -422,3 +422,41 @@ export interface SearchDevelopersQuery {
 
 export type CandidateDeveloper = Developer &
   Partial<{ score: ScoreSnapshot; level: CredentialLevel; skillId: SkillId }>;
+
+// ---------------------------------------------------------------------------
+// Auth / SIWS (Epic 2 — wallet sign-in + admin console)
+// ---------------------------------------------------------------------------
+
+export type AuthRole = 'user' | 'admin';
+
+/** Single-use, time-boxed SIWS challenge issued before a wallet signs. */
+export interface SiwsChallenge {
+  wallet: string; // base58 pubkey that must sign
+  nonce: string; // random, single-use
+  message: string; // the exact string the wallet signs (SIWS-shaped)
+  domain: string; // e.g. proofmesh.xyz
+  uri: string; // page URL the wallet is signing on behalf of
+  chainId: string; // "solana:101" (devnet)
+  issuedAt: string; // ISO
+  expirationTime: string; // ISO
+}
+
+export interface SiwsVerifyRequest {
+  wallet: string;
+  message: string; // must equal the challenged message (immutable replay guard)
+  signature: string; // base64 ed25519 signature over the message bytes
+}
+
+export interface AuthSession {
+  token: string; // opaque bearer token (256-bit random)
+  wallet: string;
+  role: AuthRole;
+  issuedAt: string;
+  expiresAt: string;
+}
+
+export interface AuthMe {
+  wallet: string;
+  role: AuthRole;
+  expiresAt: string;
+}

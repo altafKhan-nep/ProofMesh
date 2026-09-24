@@ -39,7 +39,7 @@ pnpm dev              # web on :3000 + api on :4000 (parallel)
 - API: http://localhost:4000/health
 
 ```bash
-pnpm test             # 24 unit tests (scoring-engine + verifier-sdk)
+pnpm test             # 49 unit tests (scoring-engine + verifier-sdk + api auth/gating)
 pnpm typecheck        # strict TS across all packages
 pnpm seed             # re-seed the API store
 pnpm backtest         # validation back-test (ARCHITECTURE.md §13) on real GitHub accounts
@@ -79,6 +79,23 @@ rate window or `GITHUB_TOKEN`.
 `GET /api/analyze/:id` · `GET /api/analyze/:id/stream` (SSE) · `GET /api/evidence/:handle` ·
 `GET /api/verify/:wallet/:skill` · `GET /api/badge/:wallet/:skill.svg` · `POST /api/search` · `POST /api/invite` ·
 `POST /api/listings/:id/verified-link` · `POST /api/reset`
+
+Auth (Epic 2, SIWS): `POST /api/auth/challenge` · `POST /api/auth/verify` · `GET /api/auth/me` · `POST /api/auth/logout`.
+
+## Wallet sign-in & admin console (Epic 2)
+
+Mutating routes are role-gated: `POST /api/analyze` and `POST /api/bind` require any
+signed-in wallet; `DELETE /api/listings/:id`, `POST /api/invite`,
+`POST /api/listings/:id/verified-link`, and `POST /api/reset` require an **admin** wallet.
+Everything read-only stays public.
+
+- Sign-in is SIWS-style challenge/response (ed25519) — no passwords. The API issues a
+  single-use 5-minute `nonce`, you sign the exact message bytes with your Solana key, and
+  get back an opaque `Authorization: Bearer` token (24h). See `apps/api/src/auth.ts`.
+- `ADMIN_WALLETS=<base58,comma,...>` on the API sets which wallets get `role: admin`.
+- No extension wallet handy? The web header's **SIGN IN** falls back to a deterministic
+  demo keypair — `ADMIN_WALLETS=6LAvs9cZQDfaSHGDTBPpEoPNsDR2NqpxpbwpKeRumfXk` makes it an
+  admin, so the whole sponsor console (invite / verified link / remove) works locally.
 
 ## Live GitHub ingestion (real-world data)
 

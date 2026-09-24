@@ -1,6 +1,8 @@
 import type {
   AnalyzeRequest,
   AnalysisJob,
+  AuthMe,
+  AuthRole,
   CandidateDeveloper,
   Credential,
   Developer,
@@ -9,6 +11,8 @@ import type {
   Listing,
   RepoSnapshot,
   ScoreSnapshot,
+  SiwsChallenge,
+  SiwsVerifyRequest,
   SseEvent,
   VerifyResult
 } from '@proofmesh/shared-types';
@@ -38,16 +42,29 @@ async function json<T>(res: Response): Promise<T> {
   return data as T;
 }
 
-async function get<T>(path: string): Promise<T> {
-  return json<T>(await fetch(`${API_BASE}${path}`));
+async function get<T>(path: string, opts?: { token?: string }): Promise<T> {
+  return json<T>(
+    await fetch(`${API_BASE}${path}`, {
+      headers: opts?.token ? { authorization: `Bearer ${opts.token}` } : undefined
+    })
+  );
 }
 
-async function post<T>(path: string, body: unknown): Promise<T> {
+async function post<T>(path: string, body: unknown, opts?: { token?: string }): Promise<T> {
   return json<T>(
     await fetch(`${API_BASE}${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json' },
+      headers: { 'content-type': 'application/json', ...(opts?.token ? { authorization: `Bearer ${opts.token}` } : {}) },
       body: JSON.stringify(body)
+    })
+  );
+}
+
+async function del<T>(path: string, token?: string): Promise<T> {
+  return json<T>(
+    await fetch(`${API_BASE}${path}`, {
+      method: 'DELETE',
+      headers: token ? { authorization: `Bearer ${token}` } : undefined
     })
   );
 }
@@ -64,7 +81,13 @@ export const api = {
   bind: (body: { githubUsername: string; wallet: string }) =>
     post<{ developer: Developer; binding: { wallet: string; domain: string } }>('/api/bind', body),
   job: (id: string) => get<{ job: AnalysisJob; score: ScoreSnapshot | null }>(`/api/analyze/${id}`),
-  post: <T>(path: string, body: unknown = {}) => post<T>(path, body),
+  post: <T>(path: string, body: unknown = {}, opts?: { token?: string }) => post<T>(path, body, opts),
+  authChallenge: (wallet: string) => post<SiwsChallenge>('/api/auth/challenge', { wallet }),
+  authVerify: (req: SiwsVerifyRequest) =>
+    post<{ token: string; wallet: string; role: AuthRole; expiresAt: string }>('/api/auth/verify', req),
+  authMe: (token: string) => get<AuthMe>('/api/auth/me', { token }),
+  authLogout: (token: string) => post<{ ok: true }>('/api/auth/logout', {}, { token }),
+  del: <T>(path: string, token?: string) => del<T>(path, token),
   verify: (wallet: string, skill: string) =>
     get<VerifyPayload>(`/api/verify/${encodeURIComponent(wallet)}/${encodeURIComponent(skill)}`),
   badge: (wallet: string, skill: string) => `${API_BASE}/api/badge/${wallet}/${skill}.svg`

@@ -9,10 +9,12 @@
     "start": "tsx src/index.ts",
     "seed": "tsx src/seed.ts",
     "backtest": "tsx src/backtest/run.ts",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.2",
+    "@noble/curves": "^1.9.0",
     "@proofmesh/scoring-engine": "workspace:*",
     "@proofmesh/shared-types": "workspace:*",
     "@proofmesh/verifier-sdk": "workspace:*",
@@ -22,6 +24,7 @@
   "devDependencies": {
     "@types/node": "^22.10.2",
     "tsx": "^4.19.2",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.8"
   }
 }

@@ -10,6 +10,7 @@
 import {
   SKILLS,
   type AnalysisJob,
+  type AuthSession,
   type CandidateDeveloper,
   type Credential,
   type Developer,
@@ -21,6 +22,7 @@ import {
   type RepoSnapshot,
   type ScoreSnapshot,
   type SearchDevelopersQuery,
+  type SiwsChallenge,
   type SkillId,
   type WalletBinding
 } from '@proofmesh/shared-types';
@@ -46,6 +48,11 @@ export class Store {
   readonly invites: Invite[] = [];
   /** opaque sync cache (e.g. live GitHub ingestion) — phase-2 adapter seams */
   metadata = new Map<string, string>();
+  /** SIWS single-use nonce challenges, keyed by nonce (Epic 2). */
+  readonly challenges = new Map<string, SiwsChallenge>();
+  /** active bearer sessions, keyed by opaque token (Epic 2). In-memory like the
+   *  rest of Store; Postgres/Redis swap keeps this same read/write surface. */
+  readonly sessions = new Map<string, AuthSession>();
 
   constructor() {
     seed(this);
@@ -62,6 +69,8 @@ export class Store {
     this.listings.length = 0;
     this.invites.length = 0;
     this.metadata.clear();
+    this.challenges.clear();
+    this.sessions.clear();
     seed(this);
   }
 
@@ -109,6 +118,54 @@ export class Store {
     dev.linkedWallets = [...dev.linkedWallets, binding];
     dev.updatedAt = new Date().toISOString();
     return binding;
+  }
+
+  /** Issue a challenge, enforcing a per-wallet outstanding cap (spam guard). */
+  issueChallenge(challenge: SiwsChallenge): { ok: boolean; reason?: string } {
+    this.purgeExpiredChallenges();
+    const outstanding = [...this.challenges.values()].filter((c) => c.wallet === challenge.wallet).length;
+    if (outstanding >= 5) {
+      return { ok: false, reason: 'too_many_open_challenges' };
+    }
+    this.challenges.set(challenge.nonce, challenge);
+    return { ok: true };
+  }
+
+  findChallenge(nonce: string): SiwsChallenge | undefined {
+    return this.challenges.get(nonce);
+  }
+
+  /** Consume (single-use) a challenge — always delete regardless of validity. */
+  consumeChallenge(nonce: string): SiwsChallenge | undefined {
+    const c = this.challenges.get(nonce);
+    this.challenges.delete(nonce);
+    return c;
+  }
+
+  createSession(session: AuthSession): void {
+    this.sessions.set(session.token, session);
+  }
+
+  /** Active session for a bearer token, or undefined if unknown/expired. */
+  sessionFor(token: string): AuthSession | undefined {
+    const s = this.sessions.get(token);
+    if (!s) return undefined;
+    if (new Date(s.expiresAt).getTime() < Date.now()) {
+      this.sessions.delete(token);
+      return undefined;
+    }
+    return s;
+  }
+
+  revokeSession(token: string): boolean {
+    return this.sessions.delete(token);
+  }
+
+  private purgeExpiredChallenges(): void {
+    const now = Date.now();
+    for (const [nonce, c] of this.challenges) {
+      if (new Date(c.expirationTime).getTime() < now) this.challenges.delete(nonce);
+    }
   }
 
   reposFor(developerId: string): RepoSnapshot[] {

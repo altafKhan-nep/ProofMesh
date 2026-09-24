@@ -118,6 +118,9 @@ importers:
       '@fastify/cors':
         specifier: ^10.0.2
         version: 10.1.0
+      '@noble/curves':
+        specifier: ^1.9.0
+        version: 1.9.7
       '@proofmesh/scoring-engine':
         specifier: workspace:*
         version: link:../../packages/scoring-engine
@@ -143,12 +146,21 @@ importers:
       typescript:
         specifier: ^5.6.3
         version: 5.9.3
+      vitest:
+        specifier: ^2.1.8
+        version: 2.1.9
 
   apps/web:
     dependencies:
+      '@noble/curves':
+        specifier: ^1.9.0
+        version: 1.9.7
       '@proofmesh/shared-types':
         specifier: workspace:*
         version: link:../../packages/shared-types
+      '@solana/web3.js':
+        specifier: ^1.99.0
+        version: 1.99.0
       next:
         specifier: ^15.1.6
         version: 15.5.25(@types/node@22.20.4)(react-dom@19.3.0(react@19.3.0))(react@19.3.0)

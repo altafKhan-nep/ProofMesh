@@ -2,6 +2,7 @@
 
 import Link from 'next/link';
 import { useWallet } from '../lib/wallet';
+import { getBestSigner, useAuth } from '../lib/auth';
 
 const links = [
   { href: '/verify', label: 'Verification Protocol' },
@@ -14,7 +15,14 @@ function shortWallet(w: string): string {
 }
 
 export function GlobalHeader() {
-  const { wallet, disconnect } = useWallet();
+  const { wallet, connect, disconnect } = useWallet();
+  const { session, signIn, signOut } = useAuth();
+
+  const handleSignIn = async () => {
+    const signer = await getBestSigner();
+    connect(signer.wallet);
+    await signIn(signer.wallet, { ...signer, wallet: signer.wallet });
+  };
 
   return (
     <header className="w-full border-b border-border-subtle bg-surface-card/80 backdrop-blur-sm sticky top-0 z-30">
@@ -46,6 +54,17 @@ export function GlobalHeader() {
 
         {wallet ? (
           <div className="flex items-center gap-2">
+            {session && (
+              <span
+                className={`inline-flex items-center gap-1.5 px-2.5 py-2 rounded-lg font-label-mono-tag text-[10px] tracking-wider uppercase border ${
+                  session.role === 'admin'
+                    ? 'bg-primary-fixed border-primary-container/40 text-text-primary'
+                    : 'bg-surface-container border-border-strong text-text-secondary'
+                }`}
+              >
+                {session.role === 'admin' ? 'ADMIN' : 'USER'}
+              </span>
+            )}
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg border border-badge-green-border bg-badge-green-bg font-label-mono-tag text-xs text-badge-green-text">
               <span className="relative flex h-1.5 w-1.5">
                 <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-verified-dot opacity-75"></span>
@@ -53,6 +72,21 @@ export function GlobalHeader() {
               </span>
               <span className="select-all">{shortWallet(wallet)}</span>
             </div>
+            {session ? (
+              <button
+                onClick={() => void signOut()}
+                className="inline-flex items-center px-3 py-2 rounded-lg border border-border-subtle bg-surface-subtle text-text-secondary text-xs font-mono hover:text-error hover:border-error/40 transition-colors"
+              >
+                SIGN OUT
+              </button>
+            ) : (
+              <button
+                onClick={() => void handleSignIn()}
+                className="inline-flex items-center px-3 py-2 rounded-lg bg-primary-container hover:bg-tertiary text-white text-xs font-mono font-semibold transition-colors shadow-[0_1px_2px_0_rgba(29,93,58,0.2),inset_0_1px_0_rgba(255,255,255,0.15)]"
+              >
+                SIGN IN
+              </button>
+            )}
             <button
               onClick={disconnect}
               className="inline-flex items-center px-3 py-2 rounded-lg border border-border-subtle bg-surface-subtle text-text-secondary text-xs font-mono hover:text-error hover:border-error/40 transition-colors"

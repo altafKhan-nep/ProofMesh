@@ -1,17 +1,62 @@
-import type { FastifyInstance } from 'fastify';
-import type { SseEvent } from '@proofmesh/shared-types';
+import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
+import type { AuthSession, SseEvent } from '@proofmesh/shared-types';
 import { SKILLS, LEVEL_INFO } from '@proofmesh/shared-types';
 import { validateAttestationRecord, deriveCredentialPda } from '@proofmesh/verifier-sdk';
 import type { Store } from './store.js';
 import { runAnalysis } from './pipeline.js';
 import { hydrateSeededRuns } from './hydrate.js';
+import {
+  bearerTokenFromHeader,
+  isValidPubkey,
+  newChallenge,
+  newSession,
+  validateVerifyAgainstChallenge,
+  verifySiwsSignature
+} from './auth.js';
 
 export interface RouteContext {
   store: Store;
+  adminWallets: Set<string>;
+}
+
+type RequestWithAuth = FastifyRequest & { auth?: AuthSession };
+
+/** Fastify preHandler: require a signed-in session (token from Authorization header). */
+function requireAuth(store: Store) {
+  return (req: RequestWithAuth, reply: FastifyReply, done: () => void): void => {
+    const token = bearerTokenFromHeader(req.headers.authorization);
+    const session = token ? store.sessionFor(token) : undefined;
+    if (!session) {
+      reply.code(401).send({ error: 'auth_required', message: 'Sign in with your Solana wallet first.' });
+      return done();
+    }
+    req.auth = session;
+    done();
+  };
+}
+
+/** Fastify preHandler: require an admin wallet (must also pass requireAuth semantics). */
+function requireAdmin(store: Store, adminWallets: Set<string>) {
+  return (req: RequestWithAuth, reply: FastifyReply, done: () => void): void => {
+    const token = bearerTokenFromHeader(req.headers.authorization);
+    const session = token ? store.sessionFor(token) : undefined;
+    if (!session) {
+      reply.code(401).send({ error: 'auth_required', message: 'Sign in with your Solana wallet first.' });
+      return done();
+    }
+    if (!adminWallets.has(session.wallet)) {
+      reply.code(403).send({ error: 'admin_required', message: 'This action is limited to admin wallets (ADMIN_WALLETS).' });
+      return done();
+    }
+    req.auth = session;
+    done();
+  };
 }
 
 export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const store = ctx.store;
+  const adminWallets = ctx.adminWallets;
+  app.decorateRequest('auth', null as AuthSession | null);
 
   // ------------------------------------------------------------------ health
   app.get('/health', async () => ({
@@ -20,6 +65,62 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     store: { developers: store.listDevelopers().length, jobs: store.jobs.size },
     deterministicOnly: !process.env.ANTHROPIC_API_KEY
   }));
+
+  // ------------------------------------------------------------------ auth
+  const auth = { preHandler: requireAuth(store) };
+  const admin = { preHandler: requireAdmin(store, adminWallets) };
+
+  app.post('/api/auth/challenge', async (req, reply) => {
+    const body = (req.body ?? {}) as { wallet?: string };
+    const wallet = (body.wallet ?? '').trim();
+    if (!isValidPubkey(wallet)) {
+      return reply.code(400).send({ error: 'invalid_wallet', message: 'Provide a valid base58 Solana public key.' });
+    }
+    const challenge = newChallenge(wallet);
+    const issued = store.issueChallenge(challenge);
+    if (!issued.ok) {
+      return reply.code(429).send({ error: issued.reason, message: 'Too many open challenges for this wallet.' });
+    }
+    return challenge;
+  });
+
+  app.post('/api/auth/verify', async (req, reply) => {
+    const body = (req.body ?? {}) as { wallet?: string; message?: string; signature?: string };
+    const wallet = (body.wallet ?? '').trim();
+    const { message, signature } = body as { message: string; signature: string };
+    if (!wallet || !message || !signature) {
+      return reply.code(400).send({ error: 'missing_verify_fields' });
+    }
+    const nonce = /^Nonce:\s*(.+)$/m.exec(message)?.[1];
+    if (!nonce) return reply.code(400).send({ error: 'malformed_message' });
+
+    // Single-use: consume the challenge now, before signature work.
+    const challenge = store.consumeChallenge(nonce);
+    if (!challenge) return reply.code(401).send({ error: 'challenge_not_found', message: 'Nonce unknown or already used.' });
+
+    const invalid = validateVerifyAgainstChallenge({ wallet, message, signature }, challenge);
+    if (invalid) return reply.code(401).send({ error: invalid });
+
+    if (!verifySiwsSignature(message, signature, wallet)) {
+      return reply.code(401).send({ error: 'invalid_signature' });
+    }
+
+    const role = adminWallets.has(wallet) ? 'admin' : 'user';
+    const session = newSession(wallet, role);
+    store.createSession(session);
+    return { token: session.token, wallet, role, expiresAt: session.expiresAt };
+  });
+
+  app.get('/api/auth/me', auth, async (req) => {
+    const session = (req as RequestWithAuth).auth!;
+    return { wallet: session.wallet, role: session.role, expiresAt: session.expiresAt };
+  });
+
+  app.post('/api/auth/logout', auth, async (req, reply) => {
+    const token = bearerTokenFromHeader((req as RequestWithAuth).headers.authorization);
+    if (token) store.revokeSession(token);
+    return { ok: true };
+  });
 
   // --------------------------------------------------------------- developers
   app.get('/api/developers', async () => store.listDevelopers());
@@ -32,7 +133,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
 
   // ----------------------------------------------------------------- listings
   app.get('/api/listings', async () => store.listings);
-  app.delete('/api/listings/:id', async (req, reply) => {
+  app.delete('/api/listings/:id', admin, async (req, reply) => {
     const { id } = req.params as { id: string };
     const idx = store.listings.findIndex((l) => l.id === id);
     if (idx === -1) return reply.code(404).send({ error: 'listing_not_found' });
@@ -41,7 +142,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   });
 
   // ---------------------------------------------------------------- bind wallet
-  app.post('/api/bind', async (req, reply) => {
+  app.post('/api/bind', auth, async (req, reply) => {
     const body = (req.body ?? {}) as { githubUsername?: string; githubHandle?: string; wallet?: string };
     const handle = body.githubUsername ?? body.githubHandle ?? '';
     const wallet = (body.wallet ?? '').trim();
@@ -79,7 +180,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   });
 
   // ------------------------------------------------------------------- analyze
-  app.post('/api/analyze', async (req, reply) => {
+  app.post('/api/analyze', auth, async (req, reply) => {
     const body = (req.body ?? {}) as {
       githubHandle?: string;
       githubUsername?: string;
@@ -319,7 +420,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   });
 
   // ----------------------------------------------------------------- invite
-  app.post('/api/invite', async (req, reply) => {
+  app.post('/api/invite', admin, async (req, reply) => {
     const body = (req.body ?? {}) as { listingId?: string; githubHandle?: string; message?: string };
     const listing = store.listings.find((l) => l.id === body.listingId);
     if (!listing) return reply.code(404).send({ error: 'listing_not_found' });
@@ -338,7 +439,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   });
 
   // ------------------------------------------------------- verified link
-  app.post('/api/listings/:id/verified-link', async (req, reply) => {
+  app.post('/api/listings/:id/verified-link', admin, async (req, reply) => {
     const { id } = req.params as { id: string };
     const listing = store.listings.find((l) => l.id === id);
     if (!listing) return reply.code(404).send({ error: 'listing_not_found' });
@@ -348,7 +449,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   });
 
   // ------------------------------------------------------------- CLI/demo
-  app.post('/api/reset', async () => {
+  app.post('/api/reset', admin, async () => {
     store.reset();
     await hydrateSeededRuns(store);
     return { ok: true };
