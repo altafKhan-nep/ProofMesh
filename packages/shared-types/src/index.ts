@@ -465,13 +465,22 @@ export interface SiwsVerifyRequest {
 }
 
 export interface AuthSession {
-  token: string; // opaque bearer token (256-bit random); also set as an httpOnly cookie
+  /**
+   * The bearer credential. Present at issuance; empty for sessions restored
+   * from persistence (which store only the sha256 index, never the token).
+   * Never expose this in an API response.
+   */
+  token: string;
   csrfToken?: string; // double-submit token; readable by JS, echoed in x-pm-csrf
   wallet: string;
   role: AuthRole;
   issuedAt: string;
   expiresAt: string;
   lastSeenAt?: string; // sliding idle window (2h); absolute lifetime stays expiresAt
+  /** Last 4 chars, for showing "which session" without holding the token. */
+  tokenHint?: string;
+  /** GitHub login proven on this session via OAuth (the GitHub leg of a binding). */
+  githubLogin?: string;
 }
 
 /** A privileged-action proof: the wallet signs this exact request (P2). */
@@ -503,6 +512,7 @@ export type AuditEventType =
   | 'auth.signin'
   | 'auth.signout'
   | 'auth.action_proof'
+  | 'auth.github_oauth'
   | 'bind.attempt'
   | 'admin.action'
   | 'analyze.request'

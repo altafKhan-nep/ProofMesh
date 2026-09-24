@@ -211,9 +211,44 @@ Consequently, three takeover paths are closed by construction:
   **and** GitHub ownership are both proven; otherwise the developer is scored
   but no credential is attributed (`wallet = 'unbound'`).
 
-`binding.verified.github` stays `pending` until GitHub-side ownership is proven
-through OAuth (the GitHub App session). That is the one remaining proof leg, and
-it is deliberately fail-closed: pending bindings score but never mint.
+**Both legs are required.** A binding is only created when the session proves
+*both*:
+
+1. **Wallet leg** — a signature over an audience-bound challenge
+   (`purpose: 'bind'`, `subject: <github handle>`) by the session wallet.
+2. **GitHub leg** — OAuth authorization-code flow attaching a verified GitHub
+   login to the session, which must equal the handle being bound.
+
+Reading public repository data needs **no OAuth scopes**, so we request none
+(`client_id` + `state` only). `state` is the CSRF defence: single-use, 10-minute
+TTL, hashed at rest, and bound to the session's wallet — so a captured code is
+useless without it, a replay is rejected, and a state minted for wallet A cannot
+be redeemed by wallet B.
+
+Fail-closed by design: a binding whose GitHub leg is unproven stays
+`github: 'pending'`, is scored, and **never mints**. Endpoints:
+
+| Route | Purpose |
+|---|---|
+| `GET /api/auth/github/start` | mint state, return authorize URL (no scopes) |
+| `GET /api/auth/github/status` | is this session's GitHub identity proven? |
+| `GET /api/auth/github/callback` | consume state, exchange code, attach login |
+| `POST /api/bind` | both legs → binding `verified: { wallet: true, github: 'proven' }` |
+
+Config: `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, `GITHUB_OAUTH_REDIRECT`
+(default `http://localhost:4000/api/auth/github/callback`). Endpoint overrides
+(`GITHUB_OAUTH_AUTHORIZE_URL`, `GITHUB_OAUTH_TOKEN_URL`, `GITHUB_API_USER_URL`)
+enable GitHub Enterprise and local test doubles. Without credentials the routes
+report `configured: false` and **no binding can reach `proven`**, so nothing can
+mint — fail-closed, not fail-open.
+
+**Session storage.** Behind a `SessionStore` interface: in-memory by default,
+`SESSION_STORE=file` + `SESSION_FILE=<path>` for local persistence across
+restarts, Postgres/Redis behind the same interface for production. Sessions are
+indexed by `sha256(token)` and the raw token is **never stored** — a leaked
+store yields nothing presentable, since lookups hash the token the client
+presents. Expiry is absolute (24h) plus a sliding idle window (2h), enforced on
+read and by `Store.sweepSessions()`.
 
 
 ## 9. Solana design

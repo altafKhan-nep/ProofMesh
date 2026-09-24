@@ -101,14 +101,21 @@ export const api = {
   search: (q: { skills?: string[]; minScore?: number; minLevel?: number }) =>
     post<CandidateDeveloper[]>('/api/search', q),
   analyze: (body: AnalyzeRequest, token?: string) => post<{ job: AnalysisJob }>('/api/analyze', body, { token }),
-  bind: (body: { githubUsername: string; wallet: string }, token?: string) =>
-    post<{ developer: Developer; binding: { wallet: string; domain: string } }>('/api/bind', body, { token }),
   job: (id: string) => get<{ job: AnalysisJob; score: ScoreSnapshot | null }>(`/api/analyze/${id}`),
   post: <T>(path: string, body: unknown = {}, opts?: { token?: string }) => post<T>(path, body, opts),
   authChallenge: (wallet: string) => post<SiwsChallenge>('/api/auth/challenge', { wallet }),
   authVerify: (req: SiwsVerifyRequest) =>
     post<{ token: string; wallet: string; role: AuthRole; expiresAt: string }>('/api/auth/verify', req),
   authMe: (token?: string) => get<AuthMe>('/api/auth/me', { token }),
+  /** GitHub OAuth (the GitHub-side proof of a binding). */
+  githubOAuthStart: () =>
+    get<{ configured: boolean; authorizeUrl: string | null; message?: string }>('/api/auth/github/start'),
+  githubOAuthStatus: () => get<{ proven: boolean; login: string | null }>('/api/auth/github/status'),
+  bind: (body: { githubUsername: string; wallet: string; message: string; signature: string }) =>
+    post<{ developer: Developer; binding: { wallet: string; verified?: { wallet: boolean; github: string } } }>(
+      '/api/bind',
+      body
+    ),
   /** P3: security audit trail (admin read). */
   adminAudit: (limit = 25) =>
     get<{ capacity: number; total: number; events: AuditEvent[] }>(`/api/admin/audit?limit=${limit}`),

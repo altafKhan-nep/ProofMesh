@@ -4,6 +4,17 @@ import { SKILLS, LEVEL_INFO } from '@proofmesh/shared-types';
 import { validateAttestationRecord, deriveCredentialPda } from '@proofmesh/verifier-sdk';
 import type { Store } from './store.js';
 import { RateLimiter, rateLimitsFromEnv } from './rate-limit.js';
+import {
+  authorizeUrl,
+  exchangeCode,
+  isPendingLive,
+  newPendingOAuth,
+  oauthConfigured,
+  stateHash,
+  stateMatches,
+  type OAuthEndpoints,
+  type PendingOAuth
+} from './github-oauth.js';
 import type { RateLimitRules } from './rate-limit.js';
 import { runAnalysis } from './pipeline.js';
 import { hydrateSeededRuns } from './hydrate.js';
@@ -31,6 +42,14 @@ export interface RouteContext {
   /** P4: per-route limits; defaults to rateLimitsFromEnv(). Tests may override. */
   rateLimits?: RateLimitRules;
   limiter?: RateLimiter;
+  /** GitHub OAuth (GitHub-side proof of a binding). */
+  githubOAuth?: {
+    clientId: string;
+    clientSecret: string;
+    redirectUri: string;
+    endpoints?: Partial<OAuthEndpoints>;
+    fetchImpl?: typeof fetch;
+  };
 }
 
 type RequestWithAuth = FastifyRequest & { auth?: AuthSession; authVia?: 'bearer' | 'cookie' };
@@ -74,23 +93,26 @@ function clearSessionCookies(reply: FastifyReply): void {
  *     require the double-submit `x-pm-csrf` header to match the session token,
  *     so a stolen cookie alone is not enough from another origin.
  */
-function resolveSession(req: RequestWithAuth, store: Store): { session?: AuthSession; via?: 'bearer' | 'cookie' } {
+async function resolveSession(
+  req: RequestWithAuth,
+  store: Store
+): Promise<{ session?: AuthSession; via?: 'bearer' | 'cookie'; token?: string }> {
   const bearer = bearerTokenFromHeader(req.headers.authorization);
   if (bearer) {
-    const session = store.sessionFor(bearer);
-    return session ? { session, via: 'bearer' } : {};
+    const session = await store.sessionFor(bearer);
+    return session ? { session, via: 'bearer', token: bearer } : {};
   }
   const cookieToken = readCookie(req, SESSION_COOKIE);
   if (cookieToken) {
-    const session = store.sessionFor(cookieToken);
+    const session = await store.sessionFor(cookieToken);
     if (!session) return {};
-    const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase());
+    const mutating = isMutating(req);
     if (mutating) {
       const header = req.headers[CSRF_HEADER];
       const presented = Array.isArray(header) ? header[0] : header;
-      if (!safeEqual(presented, session.csrfToken)) return { session, via: 'cookie' };
+      if (!safeEqual(presented, session.csrfToken)) return { session, via: 'cookie', token: cookieToken };
     }
-    return { session, via: 'cookie' };
+    return { session, via: 'cookie', token: cookieToken };
   }
   return {};
 }
@@ -109,7 +131,7 @@ async function authenticate(
   store: Store
 ): Promise<AuthSession | null> {
   const req = request as RequestWithAuth;
-  const { session, via } = resolveSession(req, store);
+  const { session, via } = await resolveSession(req, store);
   if (!session) {
     await reply.code(401).send({ error: 'auth_required', message: 'Sign in with your Solana wallet first.' });
     return null;
@@ -290,6 +312,10 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
 
   // ------------------------------------------------------------------ auth
   const auth = { preHandler: requireAuth(store) };
+  /** Single-use OAuth `state` values, bound to the session wallet. */
+  const pendingOAuth = new Map<string, PendingOAuth>();
+  const oauthCfg = ctx.githubOAuth;
+  const oauthReady = Boolean(oauthCfg && oauthConfigured(oauthCfg));
 
   app.post('/api/auth/challenge', { preHandler: limit }, async (req, reply) => {
     const body = (req.body ?? {}) as { wallet?: string; purpose?: string; subject?: string };
@@ -401,6 +427,108 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     return challenge;
   });
 
+  // ------------------------------------------------------- GitHub OAuth (proof)
+  /**
+   * Step 1 of the GitHub-side proof: mint a single-use state bound to this
+   * session's wallet and return the authorize URL. No scopes are requested —
+   * public repository data needs none.
+   */
+  app.get('/api/auth/github/start', auth, async (req) => {
+    if (!oauthReady || !oauthCfg) {
+      return { configured: false, authorizeUrl: null, message: 'GitHub OAuth is not configured on this server.' };
+    }
+    const session = (req as RequestWithAuth).auth!;
+    const returnTo = (req.query as { returnTo?: string })?.returnTo ?? null;
+    const pending = newPendingOAuth(session.wallet, returnTo);
+    pendingOAuth.set(pending.stateHash, pending);
+    store.audit.record({
+      type: 'auth.github_oauth',
+      outcome: 'success',
+      actor: session.wallet,
+      role: session.role,
+      method: req.method,
+      route: '/api/auth/github/start'
+    });
+    return {
+      configured: true,
+      authorizeUrl: authorizeUrl(
+        { clientId: oauthCfg.clientId, clientSecret: oauthCfg.clientSecret, endpoints: oauthCfg.endpoints },
+        pending,
+        oauthCfg.redirectUri
+      )
+    };
+  });
+
+  /** Current GitHub proof on this session. */
+  app.get('/api/auth/github/status', auth, async (req) => {
+    const session = (req as RequestWithAuth).auth!;
+    return { proven: Boolean(session.githubLogin), login: session.githubLogin ?? null };
+  });
+
+  /**
+   * Step 2: GitHub redirects here with code+state. The state is consumed, the
+   * code exchanged server-side, and the verified login attached to the session.
+   * From here a bind can be created with BOTH legs proven.
+   */
+  app.get('/api/auth/github/callback', auth, async (req, reply) => {
+    const session = (req as RequestWithAuth).auth!;
+    const q = (req.query ?? {}) as { code?: string; state?: string; error?: string };
+    const deny = async (reason: string, error: string, message: string) => {
+      store.audit.record({
+        type: 'auth.github_oauth',
+        outcome: 'denied',
+        actor: session.wallet,
+        role: session.role,
+        method: req.method,
+        route: '/api/auth/github/callback',
+        reason
+      });
+      return reply.code(401).send({ error, message });
+    };
+
+    if (q.error) return deny('oauth_provider_error', 'github_oauth_denied', `GitHub returned: ${q.error}`);
+    if (!oauthReady || !oauthCfg) return deny('oauth_not_configured', 'github_oauth_not_configured', 'OAuth is not configured.');
+    if (!q.code || !q.state) return deny('missing_params', 'github_oauth_missing_params', 'code and state are required.');
+
+    const pending = pendingOAuth.get(stateHash(q.state));
+    if (!pending) return deny('state_unknown', 'github_oauth_state_invalid', 'Unknown or already-used state.');
+    pendingOAuth.delete(pending.stateHash); // single use
+    if (!stateMatches(pending, q.state)) return deny('state_mismatch', 'github_oauth_state_invalid', 'State mismatch.');
+    if (!isPendingLive(pending)) return deny('state_expired', 'github_oauth_state_expired', 'Sign-in request expired.');
+    if (pending.wallet !== session.wallet) {
+      return deny('state_wallet_mismatch', 'github_oauth_state_invalid', 'State was issued to a different wallet.');
+    }
+
+    let identity;
+    try {
+      identity = await exchangeCode(
+        {
+          clientId: oauthCfg.clientId,
+          clientSecret: oauthCfg.clientSecret,
+          endpoints: oauthCfg.endpoints,
+          fetchImpl: oauthCfg.fetchImpl
+        },
+        q.code,
+        oauthCfg.redirectUri
+      );
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : 'oauth_exchange_failed';
+      return deny(reason, 'github_oauth_exchange_failed', 'Could not complete the GitHub authorization.');
+    }
+
+    session.githubLogin = identity.login;
+    store.audit.record({
+      type: 'auth.github_oauth',
+      outcome: 'success',
+      actor: session.wallet,
+      role: session.role,
+      method: req.method,
+      route: '/api/auth/github/callback',
+      meta: { github: identity.login }
+    });
+    return { proven: true, login: identity.login, avatarUrl: identity.avatarUrl, returnTo: pending.returnTo };
+  });
+
   /**
    * P3: read the security audit trail. Admin-only, and a read (no per-action
    * signature needed). Every privileged write is already recorded by the guard.
@@ -420,8 +548,12 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   });
 
   app.post('/api/auth/logout', auth, async (req, reply) => {
-    const session = (req as RequestWithAuth).auth!;
-    store.revokeSession(session.token);
+    const r = req as RequestWithAuth;
+    const session = r.auth!;
+    // Revoke by the token the client presented: a session restored from
+    // persistence has no token of its own.
+    const presented = bearerTokenFromHeader(r.headers.authorization) ?? readCookie(r, SESSION_COOKIE);
+    if (presented) await store.revokeSession(presented);
     clearSessionCookies(reply);
     audit(req, {
       type: 'auth.signout',
@@ -507,6 +639,24 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
       return reply.code(401).send({ error: 'invalid_signature' });
     }
 
+    // Second leg: the session must carry a GitHub identity proven via OAuth, and
+    // it must be the account being bound. One leg alone never creates a binding.
+    const provenLogin = session.githubLogin;
+    if (!provenLogin) {
+      audit(req, { type: 'bind.attempt', outcome: 'denied', actor: session.wallet, reason: 'github_proof_required', method: req.method, route: '/api/bind', meta: { handle } });
+      return reply.code(403).send({
+        error: 'github_proof_required',
+        message: 'Connect GitHub (OAuth) to prove you own this account before binding.'
+      });
+    }
+    if (provenLogin.toLowerCase() !== handle.toLowerCase()) {
+      audit(req, { type: 'bind.attempt', outcome: 'denied', actor: session.wallet, reason: 'github_identity_mismatch', method: req.method, route: '/api/bind', meta: { handle, proven: provenLogin } });
+      return reply.code(403).send({
+        error: 'github_identity_mismatch',
+        message: `This session is authorized as @${provenLogin}, not @${handle}.`
+      });
+    }
+
     let dev = store.findDeveloper(handle);
     if (!dev) {
       try {
@@ -537,7 +687,9 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     const binding = store.bindWallet(dev.id, wallet, {
       signedMessage: bindChallenge.message,
       nonce: bindChallenge.nonce,
-      domain: bindChallenge.domain
+      domain: bindChallenge.domain,
+      // Both legs proven: wallet signature (checked above) and GitHub OAuth.
+      github: 'proven'
     });
     return { developer: dev, binding };
   });

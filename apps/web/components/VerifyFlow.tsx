@@ -37,8 +37,10 @@ export function VerifyFlow() {
   const [progress, setProgress] = useState<{ percent: number; detail: string } | null>(null);
   const [run, setRun] = useState<RunState>({ kind: 'idle' });
   const [resultStats, setResultStats] = useState<{ shownScore: number; confidence: number } | null>(null);
-  const { wallet, walletId, openModal, disconnect, error: walletError } = useWallet();
+  const { wallet, walletId, openModal, disconnect, signMessage, error: walletError } = useWallet();
   const { session } = useAuth();
+  const [github, setGithub] = useState<{ proven: boolean; login: string | null }>({ proven: false, login: null });
+  const [bindState, setBindState] = useState<{ kind: 'idle' | 'busy' | 'done' | 'error'; text?: string }>({ kind: 'idle' });
 
   useEffect(() => {
     let alive = true;
@@ -49,6 +51,57 @@ export function VerifyFlow() {
       alive = false;
     };
   }, []);
+
+  // The GitHub leg of a binding: proven on the session via OAuth.
+  useEffect(() => {
+    if (!session) {
+      setGithub({ proven: false, login: null });
+      return;
+    }
+    api
+      .githubOAuthStatus()
+      .then(setGithub)
+      .catch(() => setGithub({ proven: false, login: null }));
+  }, [session]);
+
+  const connectGithub = async () => {
+    setBindState({ kind: 'busy', text: 'Opening GitHub…' });
+    try {
+      const start = await api.githubOAuthStart();
+      if (!start.configured || !start.authorizeUrl) {
+        setBindState({ kind: 'error', text: start.message ?? 'GitHub OAuth is not configured on this server.' });
+        return;
+      }
+      window.location.assign(start.authorizeUrl);
+    } catch (err) {
+      setBindState({ kind: 'error', text: err instanceof Error ? err.message : String(err) });
+    }
+  };
+
+  const bindWallet = async () => {
+    if (!wallet || !handle.trim()) return;
+    setBindState({ kind: 'busy', text: 'Signing the binding…' });
+    try {
+      const challenge = await api.post<{ message: string }>('/api/auth/challenge', {
+        wallet,
+        purpose: 'bind',
+        subject: handle.trim()
+      });
+      const signature = await signMessage(challenge.message);
+      const res = await api.bind({
+        githubUsername: handle.trim(),
+        wallet,
+        message: challenge.message,
+        signature
+      });
+      setBindState({
+        kind: 'done',
+        text: `Bound ${res.binding.verified?.github === 'proven' ? 'and verified' : ''} — credentials can now be issued to this wallet.`
+      });
+    } catch (err) {
+      setBindState({ kind: 'error', text: err instanceof Error ? err.message : String(err) });
+    }
+  };
 
   const mintWallet = wallet ?? undefined;
   const suggestions = useMemo(() => devs.map((d) => d.githubHandle).filter(Boolean), [devs]);
@@ -198,6 +251,49 @@ export function VerifyFlow() {
             <p className="mt-1.5 font-label-code text-[10px] text-badge-green-text">
               SIGNED IN · {session.role.toUpperCase()} · {shortWallet(session.wallet)}
             </p>
+          )}
+
+          {session && (
+            <div className="mt-3 p-3 rounded-lg border border-border-subtle bg-surface-container-low">
+              <div className="font-label-caps text-[10px] text-text-muted uppercase tracking-wider mb-2">
+                Identity proof (required to issue)
+              </div>
+              <div className="flex items-center justify-between gap-2 font-label-code text-[11px]">
+                <span className={github.proven ? 'text-badge-green-text' : 'text-text-muted'}>
+                  1. GitHub: {github.proven ? `@${github.login} verified` : 'not connected'}
+                </span>
+                {!github.proven && (
+                  <button
+                    onClick={() => void connectGithub()}
+                    disabled={bindState.kind === 'busy'}
+                    className="px-2 py-1 rounded border border-border-subtle text-[10px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors disabled:opacity-50"
+                  >
+                    CONNECT GITHUB
+                  </button>
+                )}
+              </div>
+              <div className="mt-2 flex items-center justify-between gap-2 font-label-code text-[11px]">
+                <span className={bindState.kind === 'done' ? 'text-badge-green-text' : 'text-text-muted'}>
+                  2. Wallet signature for @{handle.trim() || '…'}
+                </span>
+                <button
+                  onClick={() => void bindWallet()}
+                  disabled={bindState.kind === 'busy' || !github.proven || !wallet || !handle.trim()}
+                  className="px-2 py-1 rounded border border-border-subtle text-[10px] text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                >
+                  {bindState.kind === 'busy' ? 'SIGNING…' : 'BIND WALLET'}
+                </button>
+              </div>
+              {bindState.text && (
+                <p
+                  className={`mt-2 font-label-code text-[10px] ${
+                    bindState.kind === 'error' ? 'text-error' : 'text-text-muted'
+                  }`}
+                >
+                  {bindState.text}
+                </p>
+              )}
+            </div>
           )}
           {!wallet && (
             <p className="mt-1.5 font-label-code text-[10px] text-text-muted">

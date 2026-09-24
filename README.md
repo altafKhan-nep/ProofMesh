@@ -142,6 +142,13 @@ Everything read-only stays public.
   single-use 5-minute `nonce`, you sign the exact message bytes with your Solana key, and
   get back an opaque `Authorization: Bearer` token (24h). See `apps/api/src/auth.ts`.
 - `ADMIN_WALLETS=<base58,comma,...>` on the API sets which wallets get `role: admin`.
+- **Issuing a credential requires two proofs**: connect GitHub (OAuth, no scopes
+  requested) *and* sign a bind challenge with your wallet. Either alone is
+  refused (`github_proof_required` / `proof_required`). Set
+  `GITHUB_CLIENT_ID` + `GITHUB_CLIENT_SECRET` to enable the GitHub leg; without
+  them no binding can be proven, so nothing can mint.
+- Sessions: in-memory by default; `SESSION_STORE=file SESSION_FILE=.secrets/sessions.json`
+  survives restarts locally. The store holds only `sha256(token)` indices.
 - No extension wallet handy? The web header's **SIGN IN** falls back to a deterministic
   demo keypair — `ADMIN_WALLETS=6LAvs9cZQDfaSHGDTBPpEoPNsDR2NqpxpbwpKeRumfXk` makes it an
   admin, so the whole sponsor console (invite / verified link / remove) works locally.

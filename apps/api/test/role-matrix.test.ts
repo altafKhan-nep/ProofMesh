@@ -219,7 +219,7 @@ describe('identity binding requires proof of ownership', () => {
     expect((await res.json()).error).toBe('challenge_audience_mismatch');
   });
 
-  it('accepts a correctly signed bind challenge and marks GitHub proof pending', async () => {
+  it('requires the GitHub leg: a signed wallet proof alone is refused (403)', async () => {
     const wallet = USER.publicKey.toBase58();
     const ch = await (
       await fetch(`${ctx.url}/api/auth/challenge`, {
@@ -238,10 +238,10 @@ describe('identity binding requires proof of ownership', () => {
         signature: sign(USER, ch.message)
       })
     });
-    // The handle is not seeded, so ingestion may 404/502 — but it must never be
-    // rejected for lack of proof, and the proof itself must have passed.
-    expect([200, 404, 429, 502]).toContain(res.status);
-    if (res.status !== 200) expect(res.status).not.toBe(400);
+    // The wallet signature is valid, but the GitHub identity is not proven on this
+    // session, so the binding must not be created.
+    expect(res.status).toBe(403);
+    expect((await res.json()).error).toBe('github_proof_required');
   });
 
   it('bind challenge is single-use', async () => {

@@ -28,6 +28,8 @@ import {
   type WalletBinding
 } from '@proofmesh/shared-types';
 import { AuditLog } from './audit.js';
+import { InMemorySessionStore } from './session-store.js';
+import type { SessionStore } from './session-store.js';
 
 const PIPELINE: (typeof PIPELINE_STAGES)[number][] = [
   'INGESTION',
@@ -54,13 +56,17 @@ export class Store {
   readonly challenges = new Map<string, SiwsChallenge>();
   /** Privileged-action proofs (admin routes), keyed by nonce, 60s TTL (P2). */
   readonly actionChallenges = new Map<string, ActionChallenge>();
-  /** active bearer sessions, keyed by opaque token (Epic 2). In-memory like the
-   *  rest of Store; Postgres/Redis swap keeps this same read/write surface. */
-  readonly sessions = new Map<string, AuthSession>();
+  /**
+   * Active sessions, delegated to a pluggable backend (in-memory by default,
+   * file-backed for local persistence). Indexed by sha256(token) inside the
+   * store, so the raw token is never at rest.
+   */
+  readonly sessionStore: SessionStore;
   /** Bounded security audit ring (P3): newest first, secrets redacted. */
   readonly audit = new AuditLog();
 
-  constructor() {
+  constructor(opts: { sessionStore?: SessionStore } = {}) {
+    this.sessionStore = opts.sessionStore ?? new InMemorySessionStore();
     seed(this);
   }
 
@@ -78,7 +84,7 @@ export class Store {
     this.challenges.clear();
     this.actionChallenges.clear();
     this.audit.clear();
-    this.sessions.clear();
+    void this.sessionStore.clear();
     seed(this);
   }
 
@@ -112,7 +118,7 @@ export class Store {
   bindWallet(
     developerId: string,
     wallet: string,
-    proof: { signedMessage: string; nonce: string; domain: string }
+    proof: { signedMessage: string; nonce: string; domain: string; github?: 'proven' | 'pending' }
   ): WalletBinding {
     if (!wallet) throw new Error('wallet_required');
     if (!proof?.signedMessage || !proof?.nonce) throw new Error('proof_required');
@@ -129,7 +135,7 @@ export class Store {
       domain: proof.domain,
       gistUrl: null,
       boundAt: new Date().toISOString(),
-      verified: { wallet: true, github: 'pending' }
+      verified: { wallet: true, github: proof.github ?? 'pending' }
     };
     dev.linkedWallets = [...dev.linkedWallets, binding];
     dev.updatedAt = new Date().toISOString();
@@ -158,23 +164,29 @@ export class Store {
     return c;
   }
 
-  createSession(session: AuthSession): void {
-    this.sessions.set(session.token, session);
+  createSession(session: AuthSession): Promise<void> {
+    session.tokenHint = session.tokenHint ?? session.token.slice(-4);
+    return this.sessionStore.create(session);
   }
 
   /** Active session for a bearer token, or undefined if unknown/expired. */
-  sessionFor(token: string): AuthSession | undefined {
-    const s = this.sessions.get(token);
-    if (!s) return undefined;
-    if (new Date(s.expiresAt).getTime() < Date.now()) {
-      this.sessions.delete(token);
-      return undefined;
-    }
-    return s;
+  async sessionFor(token: string): Promise<AuthSession | undefined> {
+    if (!token) return undefined;
+    return this.sessionStore.get(token);
   }
 
-  revokeSession(token: string): boolean {
-    return this.sessions.delete(token);
+  revokeSession(token: string): Promise<boolean> {
+    return this.sessionStore.revoke(token);
+  }
+
+  /** Revoke every session for a wallet (used on incident response / rotation). */
+  revokeSessionsForWallet(wallet: string): Promise<number> {
+    return this.sessionStore.revokeAllForWallet(wallet);
+  }
+
+  /** Drop idle/expired sessions; returns how many were removed. */
+  sweepSessions(): Promise<number> {
+    return this.sessionStore.sweep();
   }
 
   issueActionChallenge(challenge: ActionChallenge): void {
