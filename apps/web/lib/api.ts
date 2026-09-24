@@ -77,9 +77,9 @@ export const api = {
   listings: () => get<Listing[]>('/api/listings'),
   search: (q: { skills?: string[]; minScore?: number; minLevel?: number }) =>
     post<CandidateDeveloper[]>('/api/search', q),
-  analyze: (body: AnalyzeRequest) => post<{ job: AnalysisJob }>('/api/analyze', body),
-  bind: (body: { githubUsername: string; wallet: string }) =>
-    post<{ developer: Developer; binding: { wallet: string; domain: string } }>('/api/bind', body),
+  analyze: (body: AnalyzeRequest, token?: string) => post<{ job: AnalysisJob }>('/api/analyze', body, { token }),
+  bind: (body: { githubUsername: string; wallet: string }, token?: string) =>
+    post<{ developer: Developer; binding: { wallet: string; domain: string } }>('/api/bind', body, { token }),
   job: (id: string) => get<{ job: AnalysisJob; score: ScoreSnapshot | null }>(`/api/analyze/${id}`),
   post: <T>(path: string, body: unknown = {}, opts?: { token?: string }) => post<T>(path, body, opts),
   authChallenge: (wallet: string) => post<SiwsChallenge>('/api/auth/challenge', { wallet }),

@@ -6,6 +6,7 @@ import type { Developer, PipelineStage, SseEvent } from '@proofmesh/shared-types
 import { api, subscribeJob } from '../lib/api';
 import { PIPELINE_META, SKILL_OPTIONS, STAGE_ORDER } from '../lib/constants';
 import { useWallet } from '../lib/wallet';
+import { useAuth } from '../lib/auth';
 
 type StageState = { stage: PipelineStage; status: string; detail: string };
 type RunState =
@@ -39,6 +40,7 @@ export function VerifyFlow() {
   const [run, setRun] = useState<RunState>({ kind: 'idle' });
   const [resultStats, setResultStats] = useState<{ shownScore: number; confidence: number } | null>(null);
   const { wallet, connect, disconnect } = useWallet();
+  const { session } = useAuth();
   const [walletInput, setWalletInput] = useState('');
   const [walletError, setWalletError] = useState<string | null>(null);
 
@@ -103,17 +105,24 @@ export function VerifyFlow() {
 
   const start = async () => {
     if (!handle.trim()) return;
+    if (!session) {
+      setRun({ kind: 'error', message: 'auth_required — sign in with your wallet (header → SIGN IN) before running the pipeline.' });
+      return;
+    }
     setRun({ kind: 'running', jobId: '', note: 'Queuing analysis job…' });
     setResultStats(null);
     setStages((prev) => prev.map((s) => ({ ...s, status: 'pending' })));
     setProgress(null);
     try {
-      const { job } = await api.analyze({
-        githubUsername: handle.trim(),
-        skillId: skill as never,
-        llmEnabled: false,
-        wallet: mintWallet
-      });
+      const { job } = await api.analyze(
+        {
+          githubUsername: handle.trim(),
+          skillId: skill as never,
+          llmEnabled: false,
+          wallet: mintWallet
+        },
+        session.token
+      );
       setRun((r) => (r.kind === 'running' ? { ...r, jobId: job.id, note: `Job ${job.id} — deterministic pipeline running` } : r));
       await subscribeJob(job.id, onEvent);
     } catch (err) {

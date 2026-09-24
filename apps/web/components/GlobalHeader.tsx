@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import { useState } from 'react';
 import { useWallet } from '../lib/wallet';
 import { getBestSigner, useAuth } from '../lib/auth';
 
@@ -17,18 +18,27 @@ function shortWallet(w: string): string {
 export function GlobalHeader() {
   const { wallet, connect, disconnect } = useWallet();
   const { session, signIn, signOut } = useAuth();
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   const handleSignIn = async () => {
-    const signer = await getBestSigner();
-    connect(signer.wallet);
-    await signIn(signer.wallet, { ...signer, wallet: signer.wallet });
+    setAuthError(null);
+    setAuthBusy(true);
+    try {
+      const signer = await getBestSigner();
+      connect(signer.wallet);
+      await signIn(signer.wallet, signer);
+    } catch (err) {
+      setAuthError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setAuthBusy(false);
+    }
   };
 
   return (
     <header className="w-full border-b border-border-subtle bg-surface-card/80 backdrop-blur-sm sticky top-0 z-30">
       <div className="max-w-7xl mx-auto px-6 h-14 flex items-center justify-between">
-        <Link href="/" className="flex items-center gap-3 group">
-          <div className="w-6 h-6 rounded bg-text-primary flex items-center justify-center text-surface-card font-label-caps text-[11px] tracking-tight group-hover:bg-primary-container transition-colors">
+        <Link href="/" className="flex items-center gap-3 group">          <div className="w-6 h-6 rounded bg-text-primary flex items-center justify-center text-surface-card font-label-caps text-[11px] tracking-tight group-hover:bg-primary-container transition-colors">
             PM
           </div>
           <span className="font-headline-sm text-sm tracking-tight font-semibold text-text-primary">ProofMesh</span>
@@ -82,9 +92,11 @@ export function GlobalHeader() {
             ) : (
               <button
                 onClick={() => void handleSignIn()}
-                className="inline-flex items-center px-3 py-2 rounded-lg bg-primary-container hover:bg-tertiary text-white text-xs font-mono font-semibold transition-colors shadow-[0_1px_2px_0_rgba(29,93,58,0.2),inset_0_1px_0_rgba(255,255,255,0.15)]"
+                disabled={authBusy}
+                className="inline-flex items-center px-3 py-2 rounded-lg bg-primary-container hover:bg-tertiary disabled:opacity-60 text-white text-xs font-mono font-semibold transition-colors shadow-[0_1px_2px_0_rgba(29,93,58,0.2),inset_0_1px_0_rgba(255,255,255,0.15)]"
+                title={authError ?? 'Sign a SIWS challenge with your wallet'}
               >
-                SIGN IN
+                {authBusy ? 'SIGNING…' : 'SIGN IN'}
               </button>
             )}
             <button
@@ -106,6 +118,11 @@ export function GlobalHeader() {
           </Link>
         )}
       </div>
+      {authError && (
+        <div className="max-w-7xl mx-auto px-6 pb-2 font-label-code text-[11px] text-error">
+          SIGN IN FAILED: {authError}
+        </div>
+      )}
     </header>
   );
 }
