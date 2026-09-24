@@ -99,15 +99,13 @@ export function VerifyFlow() {
     setStages((prev) => prev.map((s) => ({ ...s, status: 'pending' })));
     setProgress(null);
     try {
-      const { job } = await api.analyze(
-        {
-          githubUsername: handle.trim(),
-          skillId: skill as never,
-          llmEnabled: false,
-          wallet: mintWallet
-        },
-        session.token
-      );
+      // Cookie session (httpOnly) + CSRF header; no token is held in JS.
+      const { job } = await api.analyze({
+        githubUsername: handle.trim(),
+        skillId: skill as never,
+        llmEnabled: false,
+        wallet: mintWallet
+      });
       setRun((r) => (r.kind === 'running' ? { ...r, jobId: job.id, note: `Job ${job.id} — deterministic pipeline running` } : r));
       await subscribeJob(job.id, onEvent);
     } catch (err) {

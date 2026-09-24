@@ -5,6 +5,7 @@ import Link from 'next/link';
 import type { CandidateDeveloper, Listing } from '@proofmesh/shared-types';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
+import { useWallet } from '../../lib/wallet';
 import { SKILL_OPTIONS, skillLabel } from '../../lib/constants';
 import { GlobalHeader } from '../../components/GlobalHeader';
 import { GlobalFooter } from '../../components/GlobalFooter';
@@ -29,7 +30,8 @@ export default function SponsorsPage() {
   const [notice, setNotice] = useState<{ kind: 'ok' | 'err'; text: string } | null>(null);
   const [selectedListing, setSelectedListing] = useState<string>('');
   const { session, isAdmin } = useAuth();
-  const token = session?.token;
+  // Wallet signer for privileged admin actions (P2: every admin write is signed).
+  const { signMessage } = useWallet();
 
   useEffect(() => {
     api.listings().then(setListings).catch(() => setListings([]));
@@ -62,7 +64,7 @@ export default function SponsorsPage() {
       return;
     }
     try {
-      await api.post('/api/invite', { listingId: selectedListing, githubHandle: handle }, { token });
+      await api.adminPost('/api/invite', { listingId: selectedListing, githubHandle: handle }, signMessage);
       setNotice({ kind: 'ok', text: `Invite sent to @${handle}` });
     } catch (e) {
       setNotice({ kind: 'err', text: e instanceof Error ? e.message : String(e) });
@@ -75,7 +77,7 @@ export default function SponsorsPage() {
       return;
     }
     try {
-      const { listing } = await api.post<{ listing: Listing }>(`/api/listings/${id}/verified-link`, {}, { token });
+      const { listing } = await api.adminPost<{ listing: Listing }>(`/api/listings/${id}/verified-link`, {}, signMessage);
       setListings((prev) => prev.map((l) => (l.id === id ? listing : l)));
       setNotice({ kind: 'ok', text: `Verified link generated: ${listing.inviteUrl ?? ''}` });
     } catch (e) {
@@ -89,7 +91,7 @@ export default function SponsorsPage() {
       return;
     }
     try {
-      const res = await api.del<{ ok: boolean }>(`/api/listings/${id}`, token);
+      const res = await api.adminDelete<{ ok: boolean }>(`/api/listings/${id}`, signMessage);
       void res;
       setNotice({ kind: 'ok', text: 'Listing removed.' });
       setListings((prev) => prev.filter((l) => l.id !== id));

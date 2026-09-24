@@ -6,11 +6,20 @@ import type { Store } from './store.js';
 import { runAnalysis } from './pipeline.js';
 import { hydrateSeededRuns } from './hydrate.js';
 import {
+  CSRF_COOKIE,
+  CSRF_HEADER,
+  SESSION_COOKIE,
   bearerTokenFromHeader,
+  csrfCookieOpts,
   isValidPubkey,
+  newActionChallenge,
   newChallenge,
   newSession,
+  safeEqual,
+  sessionCookieOpts,
+  touchSession,
   validateVerifyAgainstChallenge,
+  verifyActionProof,
   verifySiwsSignature
 } from './auth.js';
 
@@ -19,37 +28,139 @@ export interface RouteContext {
   adminWallets: Set<string>;
 }
 
-type RequestWithAuth = FastifyRequest & { auth?: AuthSession };
+type RequestWithAuth = FastifyRequest & { auth?: AuthSession; authVia?: 'bearer' | 'cookie' };
 
-/** Fastify preHandler: require a signed-in session (token from Authorization header). */
+/** Read Fastify's parsed cookies without adding a plugin dependency. */
+function readCookie(req: FastifyRequest, name: string): string | undefined {
+  const jar = (req as FastifyRequest & { cookies?: Record<string, string> }).cookies;
+  if (jar && typeof jar[name] === 'string') return jar[name];
+  const header = req.headers.cookie;
+  if (!header) return undefined;
+  for (const part of header.split(';')) {
+    const [k, ...v] = part.trim().split('=');
+    if (k === name) return decodeURIComponent(v.join('='));
+  }
+  return undefined;
+}
+
+/**
+ * Browser session transport: httpOnly session cookie + readable CSRF cookie.
+ * Guarded because @fastify/cookie is registered by the server entrypoint; a
+ * bare app (e.g. an isolated test harness) simply has no cookie transport and
+ * keeps using the bearer header.
+ */
+function setSessionCookies(reply: FastifyReply, session: AuthSession, req: FastifyRequest): void {
+  if (typeof reply.setCookie !== 'function') return;
+  reply.setCookie(SESSION_COOKIE, session.token, sessionCookieOpts(req));
+  reply.setCookie(CSRF_COOKIE, session.csrfToken ?? '', csrfCookieOpts(req));
+}
+
+function clearSessionCookies(reply: FastifyReply): void {
+  if (typeof reply.clearCookie !== 'function') return;
+  reply.clearCookie(SESSION_COOKIE, { path: '/' });
+  reply.clearCookie(CSRF_COOKIE, { path: '/' });
+}
+
+/**
+ * Resolve a session from either transport:
+ *   - `Authorization: Bearer <token>` — API clients, scripts, tests. No CSRF
+ *     check is possible or needed: a cross-origin page cannot set this header.
+ *   - `pm_session` httpOnly cookie — browsers. Mutating requests additionally
+ *     require the double-submit `x-pm-csrf` header to match the session token,
+ *     so a stolen cookie alone is not enough from another origin.
+ */
+function resolveSession(req: RequestWithAuth, store: Store): { session?: AuthSession; via?: 'bearer' | 'cookie' } {
+  const bearer = bearerTokenFromHeader(req.headers.authorization);
+  if (bearer) {
+    const session = store.sessionFor(bearer);
+    return session ? { session, via: 'bearer' } : {};
+  }
+  const cookieToken = readCookie(req, SESSION_COOKIE);
+  if (cookieToken) {
+    const session = store.sessionFor(cookieToken);
+    if (!session) return {};
+    const mutating = !['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase());
+    if (mutating) {
+      const header = req.headers[CSRF_HEADER];
+      const presented = Array.isArray(header) ? header[0] : header;
+      if (!safeEqual(presented, session.csrfToken)) return { session, via: 'cookie' };
+    }
+    return { session, via: 'cookie' };
+  }
+  return {};
+}
+
+function isMutating(req: FastifyRequest): boolean {
+  return !['GET', 'HEAD', 'OPTIONS'].includes(req.method.toUpperCase());
+}
+
+/** Fastify preHandler: require a signed-in session (bearer header or cookie+CSRF). */
 function requireAuth(store: Store) {
   return (req: RequestWithAuth, reply: FastifyReply, done: () => void): void => {
-    const token = bearerTokenFromHeader(req.headers.authorization);
-    const session = token ? store.sessionFor(token) : undefined;
+    const { session, via } = resolveSession(req, store);
     if (!session) {
       reply.code(401).send({ error: 'auth_required', message: 'Sign in with your Solana wallet first.' });
       return done();
     }
+    if (via === 'cookie' && isMutating(req) && !safeEqual(headerValue(req, CSRF_HEADER), session.csrfToken)) {
+      reply.code(403).send({ error: 'csrf_failed', message: 'Missing or invalid CSRF token.' });
+      return done();
+    }
     req.auth = session;
+    req.authVia = via;
     done();
   };
 }
 
-/** Fastify preHandler: require an admin wallet (must also pass requireAuth semantics). */
-function requireAdmin(store: Store, adminWallets: Set<string>) {
+function headerValue(req: FastifyRequest, name: string): string | undefined {
+  const v = req.headers[name];
+  return Array.isArray(v) ? v[0] : v;
+}
+
+/**
+ * Fastify preHandler for privileged admin actions. Requires BOTH the admin role
+ * and a fresh per-request wallet signature (P2): a stolen session cookie cannot
+ * perform admin actions on its own.
+ */
+function requireAdminProof(store: Store, adminWallets: Set<string>) {
+  const base = requireAuth(store);
   return (req: RequestWithAuth, reply: FastifyReply, done: () => void): void => {
-    const token = bearerTokenFromHeader(req.headers.authorization);
-    const session = token ? store.sessionFor(token) : undefined;
-    if (!session) {
-      reply.code(401).send({ error: 'auth_required', message: 'Sign in with your Solana wallet first.' });
-      return done();
-    }
-    if (!adminWallets.has(session.wallet)) {
-      reply.code(403).send({ error: 'admin_required', message: 'This action is limited to admin wallets (ADMIN_WALLETS).' });
-      return done();
-    }
-    req.auth = session;
-    done();
+    base(req, reply, () => {
+      const session = req.auth;
+      if (!session) return done();
+      if (!adminWallets.has(session.wallet)) {
+        reply.code(403).send({
+          error: 'admin_required',
+          message: 'This action is limited to admin wallets (ADMIN_WALLETS).'
+        });
+        return done();
+      }
+      const nonce = headerValue(req, 'x-pm-action-nonce');
+      const signature = headerValue(req, 'x-pm-action-signature');
+      if (!nonce || !signature) {
+        reply.code(401).send({
+          error: 'action_proof_required',
+          message: 'Privileged actions require a fresh wallet signature over this request.'
+        });
+        return done();
+      }
+      const challenge = store.consumeActionChallenge(nonce);
+      if (!challenge) {
+        reply.code(401).send({ error: 'action_challenge_not_found', message: 'Action challenge unknown or already used.' });
+        return done();
+      }
+      const invalid = verifyActionProof(challenge, signature, {
+        wallet: session.wallet,
+        method: req.method,
+        path: req.url.split('?')[0] ?? req.url,
+        body: req.body
+      });
+      if (invalid) {
+        reply.code(401).send({ error: invalid });
+        return done();
+      }
+      done();
+    });
   };
 }
 
@@ -57,6 +168,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   const store = ctx.store;
   const adminWallets = ctx.adminWallets;
   app.decorateRequest('auth', null as AuthSession | null);
+  app.decorateRequest('authVia', null as 'bearer' | 'cookie' | null);
 
   // ------------------------------------------------------------------ health
   app.get('/health', async () => ({
@@ -68,7 +180,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
 
   // ------------------------------------------------------------------ auth
   const auth = { preHandler: requireAuth(store) };
-  const admin = { preHandler: requireAdmin(store, adminWallets) };
+  const admin = { preHandler: requireAdminProof(store, adminWallets) };
 
   app.post('/api/auth/challenge', async (req, reply) => {
     const body = (req.body ?? {}) as { wallet?: string; purpose?: string; subject?: string };
@@ -113,17 +225,53 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     const role = adminWallets.has(wallet) ? 'admin' : 'user';
     const session = newSession(wallet, role);
     store.createSession(session);
-    return { token: session.token, wallet, role, expiresAt: session.expiresAt };
+    // Browser transport: httpOnly session cookie + readable CSRF cookie. The
+    // token is still returned for API clients that prefer the bearer header.
+    setSessionCookies(reply, session, req);
+    return {
+      token: session.token,
+      csrfToken: session.csrfToken,
+      wallet,
+      role,
+      expiresAt: session.expiresAt
+    };
   });
 
   app.get('/api/auth/me', auth, async (req) => {
     const session = (req as RequestWithAuth).auth!;
+    touchSession(session);
     return { wallet: session.wallet, role: session.role, expiresAt: session.expiresAt };
   });
 
+  /**
+   * P2: issue a single-use proof challenge for a privileged action. The wallet
+   * signs the exact method+path+body, so the resulting signature cannot be
+   * replayed against a different admin action.
+   */
+  app.post('/api/auth/action-challenge', auth, async (req, reply) => {
+    const session = (req as RequestWithAuth).auth!;
+    const body = (req.body ?? {}) as { method?: string; path?: string; action?: unknown };
+    const method = (body.method ?? '').toUpperCase();
+    const path = body.path ?? '';
+    if (!method || !path.startsWith('/api/')) {
+      return reply.code(400).send({ error: 'invalid_action', message: 'method and an /api/... path are required.' });
+    }
+    // The body that will be signed is supplied by the client as `action`; the
+    // server binds its hash into the message and re-checks it at use time.
+    const challenge = newActionChallenge({
+      wallet: session.wallet,
+      method,
+      path,
+      body: body.action ?? {}
+    });
+    store.issueActionChallenge(challenge);
+    return challenge;
+  });
+
   app.post('/api/auth/logout', auth, async (req, reply) => {
-    const token = bearerTokenFromHeader((req as RequestWithAuth).headers.authorization);
-    if (token) store.revokeSession(token);
+    const session = (req as RequestWithAuth).auth!;
+    store.revokeSession(session.token);
+    clearSessionCookies(reply);
     return { ok: true };
   });
 

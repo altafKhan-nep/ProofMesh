@@ -253,6 +253,28 @@ verify(wallet, skill, { minScore, minConfidence, issuerAllowlist })
 
 ### 10.2 Auth / admin (Epic 2 — SIWS wallet sign-in)
 
+**Session transport (P1).** The session token is set as an **httpOnly,
+SameSite=Lax** cookie (`pm_session`) so an XSS cannot read or exfiltrate a
+24-hour credential; it is **never** stored in `localStorage`. A readable
+`pm_csrf` cookie is echoed in the `x-pm-csrf` header on every mutating request
+(double-submit), so a cross-site request cannot ride the session. CORS reflects
+the caller's origin with `credentials: true` (never `*`). API clients and tests
+may still use `Authorization: Bearer` — a cross-origin page cannot set that
+header, so no CSRF check applies. Sessions have a 2-hour sliding idle window on
+top of the 24-hour absolute lifetime.
+
+**Privileged actions (P2).** Admin routes (invite, verified-link, listing
+delete, reset) require *both* the admin role *and* a fresh per-request wallet
+signature. `POST /api/auth/action-challenge` issues a single-use 60-second
+challenge that binds **method + path + SHA-256(body)**; the wallet signs it and
+the proof travels in `x-pm-action-nonce` / `x-pm-action-signature`. A proof is
+therefore useless against a different endpoint, a different body, or a replay
+(`action_path_mismatch`, `action_body_mismatch`, `action_challenge_not_found`).
+A stolen session cookie — the exact thing P1 protects — is **not** sufficient to
+drive the admin console.
+
+**Sign-in flow.**
+
 Challenge/response delegation (SIWS-shaped message, ed25519, no passwords):
 
 1. `POST /api/auth/challenge { wallet }` → issues a 5-minute, single-use `nonce`, returns the exact `message` the wallet signs (`SiwsChallenge`).
@@ -267,7 +289,7 @@ Route gating (Authorization header only — no cookies, CSRF-immune under dev CO
 | Route | Guard |
 |---|---|
 | `POST /api/analyze`, `POST /api/bind` | signed-in (`role: user`+) |
-| `DELETE /api/listings/:id`, `POST /api/invite`, `POST /api/listings/:id/verified-link`, `POST /api/reset` | `role: admin` |
+| `DELETE /api/listings/:id`, `POST /api/invite`, `POST /api/listings/:id/verified-link`, `POST /api/reset` | `role: admin` **+ per-request wallet signature** |
 | Everything read-only (search, developers, listings, verify, badge, evidence) | public |
 
 Session storage is in-memory (`Store.sessions`, same swap-ready seam as the rest of Store → Postgres/Redis). Demo posture: the web header can sign in with a deterministic demo keypair (`proofmesh-demo-admin:v1` → `6LAvs9cZQDfaSHGDTBPpEoPNsDR2NqpxpbwpKeRumfXk`) when no extension wallet is present; set `ADMIN_WALLETS` to that address to exercise the admin console.
@@ -308,6 +330,9 @@ Pitch line: *"The score is gameable. The evidence is inspectable. We show both."
 - Repo code is **never executed** on API hosts; any build/compile step runs in an ephemeral, network-disabled, resource-capped container, and only for repos the developer explicitly submitted.
 - Analysis workers never hold signing keys or master DB credentials — the credential service is a separate, isolated process.
 - Store derived metrics and hashes, not repo contents.
+- Sessions live in httpOnly cookies, never in `localStorage`; mutations require a
+  CSRF header; privileged actions require a fresh wallet signature bound to that
+  exact request (§10.2).
 - Consent-based, positive-only public data: no public negative scores; no scoring of non-opted-in developers; delete-on-request for off-chain data (immutable on-chain data is kept minimal for exactly this reason).
 
 ## 13. Build scope by team size

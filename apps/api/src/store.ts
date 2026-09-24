@@ -9,6 +9,7 @@
 
 import {
   SKILLS,
+  type ActionProofChallenge as ActionChallenge,
   type AnalysisJob,
   type AuthSession,
   type CandidateDeveloper,
@@ -50,6 +51,8 @@ export class Store {
   metadata = new Map<string, string>();
   /** SIWS single-use nonce challenges, keyed by nonce (Epic 2). */
   readonly challenges = new Map<string, SiwsChallenge>();
+  /** Privileged-action proofs (admin routes), keyed by nonce, 60s TTL (P2). */
+  readonly actionChallenges = new Map<string, ActionChallenge>();
   /** active bearer sessions, keyed by opaque token (Epic 2). In-memory like the
    *  rest of Store; Postgres/Redis swap keeps this same read/write surface. */
   readonly sessions = new Map<string, AuthSession>();
@@ -70,6 +73,7 @@ export class Store {
     this.invites.length = 0;
     this.metadata.clear();
     this.challenges.clear();
+    this.actionChallenges.clear();
     this.sessions.clear();
     seed(this);
   }
@@ -167,6 +171,30 @@ export class Store {
 
   revokeSession(token: string): boolean {
     return this.sessions.delete(token);
+  }
+
+  issueActionChallenge(challenge: ActionChallenge): void {
+    this.purgeExpiredActionChallenges();
+    this.actionChallenges.set(challenge.nonce, challenge);
+  }
+
+  findActionChallenge(nonce: string): ActionChallenge | undefined {
+    return this.actionChallenges.get(nonce);
+  }
+
+  /** Consume (single-use) a privileged-action proof. */
+  consumeActionChallenge(nonce: string): ActionChallenge | undefined {
+    this.purgeExpiredActionChallenges();
+    const c = this.actionChallenges.get(nonce);
+    this.actionChallenges.delete(nonce);
+    return c;
+  }
+
+  private purgeExpiredActionChallenges(): void {
+    const now = Date.now();
+    for (const [nonce, c] of this.actionChallenges) {
+      if (new Date(c.expirationTime).getTime() < now) this.actionChallenges.delete(nonce);
+    }
   }
 
   private purgeExpiredChallenges(): void {

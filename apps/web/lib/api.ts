@@ -11,6 +11,7 @@ import type {
   Listing,
   RepoSnapshot,
   ScoreSnapshot,
+  ActionProofChallenge,
   SiwsChallenge,
   SiwsVerifyRequest,
   SseEvent,
@@ -42,10 +43,29 @@ async function json<T>(res: Response): Promise<T> {
   return data as T;
 }
 
+/** Read the readable CSRF cookie so cookie-authenticated writes can be proven. */
+function csrfToken(): string | null {
+  if (typeof document === 'undefined') return null;
+  const match = /(?:^|;\s*)pm_csrf=([^;]+)/.exec(document.cookie);
+  return match ? decodeURIComponent(match[1]) : null;
+}
+
+/**
+ * Browser transport: the session lives in an httpOnly cookie (an XSS cannot read
+ * it), so requests must send credentials, and mutations must echo the CSRF
+ * cookie in a header. `token` remains available for non-browser clients/tests.
+ */
+function authHeaders(opts?: { token?: string }): Record<string, string> {
+  if (opts?.token) return { authorization: `Bearer ${opts.token}` };
+  const csrf = csrfToken();
+  return csrf ? { 'x-pm-csrf': csrf } : {};
+}
+
 async function get<T>(path: string, opts?: { token?: string }): Promise<T> {
   return json<T>(
     await fetch(`${API_BASE}${path}`, {
-      headers: opts?.token ? { authorization: `Bearer ${opts.token}` } : undefined
+      credentials: 'include',
+      headers: authHeaders(opts)
     })
   );
 }
@@ -54,7 +74,8 @@ async function post<T>(path: string, body: unknown, opts?: { token?: string }): 
   return json<T>(
     await fetch(`${API_BASE}${path}`, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(opts?.token ? { authorization: `Bearer ${opts.token}` } : {}) },
+      credentials: 'include',
+      headers: { 'content-type': 'application/json', ...authHeaders(opts) },
       body: JSON.stringify(body)
     })
   );
@@ -64,7 +85,8 @@ async function del<T>(path: string, token?: string): Promise<T> {
   return json<T>(
     await fetch(`${API_BASE}${path}`, {
       method: 'DELETE',
-      headers: token ? { authorization: `Bearer ${token}` } : undefined
+      credentials: 'include',
+      headers: authHeaders({ token })
     })
   );
 }
@@ -85,8 +107,55 @@ export const api = {
   authChallenge: (wallet: string) => post<SiwsChallenge>('/api/auth/challenge', { wallet }),
   authVerify: (req: SiwsVerifyRequest) =>
     post<{ token: string; wallet: string; role: AuthRole; expiresAt: string }>('/api/auth/verify', req),
-  authMe: (token: string) => get<AuthMe>('/api/auth/me', { token }),
-  authLogout: (token: string) => post<{ ok: true }>('/api/auth/logout', {}, { token }),
+  authMe: (token?: string) => get<AuthMe>('/api/auth/me', { token }),
+  authLogout: (token?: string) => post<{ ok: true }>('/api/auth/logout', {}, { token }),
+  /**
+   * P2: privileged admin actions require a fresh wallet signature bound to this
+   * exact method + path + body. The server rejects a proof replayed onto a
+   * different action, so a stolen session cookie cannot drive the admin console.
+   */
+  actionChallenge: (method: string, path: string, action: unknown) =>
+    post<ActionProofChallenge>('/api/auth/action-challenge', { method, path, action }),
+  adminPost: async <T>(path: string, body: unknown, sign: (message: string) => Promise<string>): Promise<T> => {
+    const challenge = await post<ActionProofChallenge>('/api/auth/action-challenge', {
+      method: 'POST',
+      path,
+      action: body
+    });
+    const signature = await sign(challenge.message);
+    return json<T>(
+      await fetch(`${API_BASE}${path}`, {
+        method: 'POST',
+        credentials: 'include',
+        headers: {
+          'content-type': 'application/json',
+          ...authHeaders(),
+          'x-pm-action-nonce': challenge.nonce,
+          'x-pm-action-signature': signature
+        },
+        body: JSON.stringify(body)
+      })
+    );
+  },
+  adminDelete: async <T>(path: string, sign: (message: string) => Promise<string>): Promise<T> => {
+    const challenge = await post<ActionProofChallenge>('/api/auth/action-challenge', {
+      method: 'DELETE',
+      path,
+      action: {}
+    });
+    const signature = await sign(challenge.message);
+    return json<T>(
+      await fetch(`${API_BASE}${path}`, {
+        method: 'DELETE',
+        credentials: 'include',
+        headers: {
+          ...authHeaders(),
+          'x-pm-action-nonce': challenge.nonce,
+          'x-pm-action-signature': signature
+        }
+      })
+    );
+  },
   del: <T>(path: string, token?: string) => del<T>(path, token),
   verify: (wallet: string, skill: string) =>
     get<VerifyPayload>(`/api/verify/${encodeURIComponent(wallet)}/${encodeURIComponent(skill)}`),

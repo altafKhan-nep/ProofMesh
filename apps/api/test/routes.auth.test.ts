@@ -5,6 +5,7 @@ import { Keypair } from '@solana/web3.js';
 import { ed25519 } from '@noble/curves/ed25519.js';
 import { Store } from '../src/store.js';
 import { registerRoutes } from '../src/routes.js';
+import { signedAdminFetch } from './helpers.js';
 
 const adminKp = Keypair.generate();
 const adminWallet = adminKp.publicKey.toBase58();
@@ -146,7 +147,7 @@ describe('auth + gated routes', () => {
       const me = await fetch(`${url}/api/auth/me`, { headers: { authorization: `Bearer ${adminToken}` } });
       expect(await me.json()).toMatchObject({ wallet: adminWallet, role: 'admin' });
 
-      const adminReset = await fetch(`${url}/api/reset`, { method: 'POST', headers: { authorization: `Bearer ${adminToken}` } });
+      const adminReset = await signedAdminFetch(url, adminToken, adminKp, 'POST', '/api/reset');
       expect(adminReset.status).toBe(200);
       expect(await adminReset.json()).toMatchObject({ ok: true });
     } finally {

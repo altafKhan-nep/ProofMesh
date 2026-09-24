@@ -2,9 +2,9 @@ import { describe, expect, it, beforeAll, afterAll } from 'vitest';
 import Fastify from 'fastify';
 import cors from '@fastify/cors';
 import { Keypair } from '@solana/web3.js';
-import { ed25519 } from '@noble/curves/ed25519.js';
 import { Store } from '../src/store.js';
 import { registerRoutes } from '../src/routes.js';
+import { sign, signedAdminFetch } from './helpers.js';
 
 const ADMIN = Keypair.generate();
 const USER = Keypair.generate();
@@ -20,12 +20,6 @@ async function server(): Promise<Ctx> {
   await app.listen({ port: 0 });
   const port = (app.server.address() as { port: number }).port;
   return { url: `http://127.0.0.1:${port}`, store, close: () => app.close().then(() => void 0) };
-}
-
-function sign(kp: Keypair, message: string): string {
-  return Buffer.from(ed25519.sign(new TextEncoder().encode(message), kp.secretKey.slice(0, 32))).toString(
-    'base64'
-  );
 }
 
 /** Full SIWS sign-in; returns the bearer token. */
@@ -82,15 +76,20 @@ describe('role matrix: anonymous / user / admin', () => {
     {
       name: 'POST /api/invite',
       run: (t) =>
-        fetch(`${ctx.url}/api/invite`, {
-          method: 'POST',
-          headers: { 'content-type': 'application/json', ...auth(t) },
-          body: JSON.stringify({ listingId: 'x', githubHandle: 'someone' })
-        })
+        t
+          ? signedAdminFetch(ctx.url, t, ADMIN, 'POST', '/api/invite', { listingId: 'x', githubHandle: 'someone' })
+          : fetch(`${ctx.url}/api/invite`, {
+              method: 'POST',
+              headers: { 'content-type': 'application/json' },
+              body: JSON.stringify({ listingId: 'x', githubHandle: 'someone' })
+            })
     },
     {
       name: 'DELETE /api/listings/:id',
-      run: (t) => fetch(`${ctx.url}/api/listings/does-not-matter`, { method: 'DELETE', headers: auth(t) })
+      run: (t) =>
+        t
+          ? signedAdminFetch(ctx.url, t, ADMIN, 'DELETE', '/api/listings/does-not-matter')
+          : fetch(`${ctx.url}/api/listings/does-not-matter`, { method: 'DELETE' })
     }
   ];
 
@@ -121,7 +120,7 @@ describe('role matrix: anonymous / user / admin', () => {
     const freshAdmin = await signIn(ctx, ADMIN);
     const asUser = await fetch(`${ctx.url}/api/reset`, { method: 'POST', headers: auth(freshUser) });
     expect(asUser.status).toBe(403);
-    const asAdmin = await fetch(`${ctx.url}/api/reset`, { method: 'POST', headers: auth(freshAdmin) });
+    const asAdmin = await signedAdminFetch(ctx.url, freshAdmin, ADMIN, 'POST', '/api/reset');
     expect(asAdmin.status).toBe(200);
     expect((await fetch(`${ctx.url}/api/auth/me`, { headers: auth(freshAdmin) })).status).toBe(401);
   });

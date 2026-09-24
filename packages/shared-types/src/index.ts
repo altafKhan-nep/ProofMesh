@@ -465,11 +465,25 @@ export interface SiwsVerifyRequest {
 }
 
 export interface AuthSession {
-  token: string; // opaque bearer token (256-bit random)
+  token: string; // opaque bearer token (256-bit random); also set as an httpOnly cookie
+  csrfToken?: string; // double-submit token; readable by JS, echoed in x-pm-csrf
   wallet: string;
   role: AuthRole;
   issuedAt: string;
   expiresAt: string;
+  lastSeenAt?: string; // sliding idle window (2h); absolute lifetime stays expiresAt
+}
+
+/** A privileged-action proof: the wallet signs this exact request (P2). */
+export interface ActionProofChallenge {
+  nonce: string;
+  wallet: string;
+  method: string;
+  path: string;
+  bodyHash: string;
+  issuedAt: string;
+  expirationTime: string;
+  message: string;
 }
 
 export interface AuthMe {
