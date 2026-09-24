@@ -1457,5 +1457,10 @@
       "error": "github_rate_limited \u2014 window exhausted mid-round; resume via GITHUB_TOKEN or next hourly window",
       "covered": false
     }
-  ]
+  ],
+  "round2Calibration": {
+    "applied": "2026-09-24 (uncommitted; pending full 30-account re-run)",
+    "summary": "ARCHITECTURE.md \u00a76: added traction dimension (weight .12, rebalanced others), REPO_TRACTION evidence (+2/repo \u2265200 stars, cap 4), E0 30\u21928. Fixed issuance gate to require shown \u2265 60 (level \u22651); sub-60 no longer mints even with confidence \u2265 0.6.",
+    "pending": "rerun full 30-account back-test next GitHub rate window or with GITHUB_TOKEN to validate precision/recall under round-2 calibration."
+  }
 }

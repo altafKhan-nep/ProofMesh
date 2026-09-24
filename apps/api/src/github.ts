@@ -18,6 +18,7 @@ import type {
   EvidenceType,
   RepoSnapshot
 } from '@proofmesh/shared-types';
+import { CALIBRATION } from '@proofmesh/shared-types';
 import type { Store } from './store.js';
 
 const GITHUB_API = 'https://api.github.com';
@@ -198,6 +199,12 @@ export async function ingestGitHub(
     ciGreen: false
   }));
 
+  // Traction evidence — free star data from the repos list (round-2 signal).
+  const tractionRepos = owned
+    .filter((r) => !r.fork && r.stargazers_count >= CALIBRATION.tractionRepoStars)
+    .sort((a, b) => b.stargazers_count - a.stargazers_count)
+    .slice(0, CALIBRATION.tractionRepoCap);
+
   // Public event feed (up to 100 recent events) → activity months + real merges.
   let events: GhEvent[] = [];
   try {
@@ -242,6 +249,19 @@ export async function ingestGitHub(
   for (const [full, n] of releaseCounts) {
     if (n > 0)
       evidence.push(liveEv(username, 'RELEASE', `${n} stable release${n === 1 ? '' : 's'} of ${full}.`, full, full, n));
+  }
+
+  for (const r of tractionRepos) {
+    evidence.push(
+      liveEv(
+        username,
+        'REPO_TRACTION',
+        `${r.full_name} — ${r.stargazers_count} stars (public reach, repos list).`,
+        r.full_name,
+        r.full_name,
+        r.stargazers_count
+      )
+    );
   }
 
   const dev: Developer = {

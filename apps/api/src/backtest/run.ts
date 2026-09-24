@@ -157,7 +157,7 @@ function tune(rows: RunRow[]): Record<string, unknown> {
   };
 }
 
-const DIMS: Array<keyof DimensionSignals> = ['quality', 'security', 'architecture', 'testing', 'consistency'];
+const DIMS: Array<keyof DimensionSignals> = ['quality', 'security', 'architecture', 'testing', 'consistency', 'traction'];
 
 function percentileOf(values: number[], pct: number): number {
   if (values.length === 0) return 0;
@@ -183,7 +183,8 @@ function proposeCorpus(rows: RunRow[]): Record<string, unknown> {
     security: [],
     architecture: [],
     testing: [],
-    consistency: []
+    consistency: [],
+    traction: []
   };
   for (const r of positives) {
     for (const d of DIMS) perDim[d]!.push(r.normalizedSignals![d] ?? 0);
@@ -198,7 +199,8 @@ function proposeCorpus(rows: RunRow[]): Record<string, unknown> {
       security: [55, 60, 65, 70, 75, 80, 85, 90, 94, 97],
       architecture: [50, 58, 64, 70, 76, 82, 87, 91, 95, 98],
       testing: [40, 50, 60, 68, 75, 82, 88, 92, 96, 99],
-      consistency: [45, 55, 63, 70, 76, 82, 87, 91, 95, 98]
+      consistency: [45, 55, 63, 70, 76, 82, 87, 91, 95, 98],
+      traction: [13, 22, 30, 36, 43, 50, 58, 67, 77, 87]
     },
     proposed: corpus
   };

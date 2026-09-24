@@ -23,7 +23,10 @@ export const DEFAULT_CORPUS = {
   security: [55, 60, 65, 70, 75, 80, 85, 90, 94, 97],
   architecture: [50, 58, 64, 70, 76, 82, 87, 91, 95, 98],
   testing: [40, 50, 60, 68, 75, 82, 88, 92, 96, 99],
-  consistency: [45, 55, 63, 70, 76, 82, 87, 91, 95, 98]
+  consistency: [45, 55, 63, 70, 76, 82, 87, 91, 95, 98],
+  // Round-2: star-backed reach on a log scale (ARCHITECTURE.md §6). These values
+  // are 100·log10(1+stars)/log10(1+1e6) at stars ≈ [5,20,60,150,400,1k,3k,10k,40k,150k].
+  traction: [13, 22, 30, 36, 43, 50, 58, 67, 77, 87]
 } as const;
 
 export type ReferenceCorpus = Record<DimensionId, readonly number[]>;
@@ -62,6 +65,7 @@ export interface AccountingInput {
   ownReviewedPRs: number;
   reposWithTestsGreenCi: number; // capped per repo
   activityMonths: number; // capped at 12
+  tractionRepos?: number; // capped at 4 (round-2: repos ≥ 200 stars)
   signedCommitRatio: number; // 0–1
   maintainerAttestations: number;
   analyzerCoverage: number; // 0.3–1.0
@@ -75,6 +79,7 @@ export function computeEvidenceUnits(input: AccountingInput): number {
     input.ownReviewedPRs * unitValues.ownReviewedPR +
     input.reposWithTestsGreenCi * unitValues.repoTestsGreenCi +
     Math.min(input.activityMonths, CALIBRATION.activityMonthCap) * unitValues.activityMonth +
+    Math.min(input.tractionRepos ?? 0, CALIBRATION.tractionRepoCap) * unitValues.tractionRepo +
     (input.signedCommitRatio >= 0.5 ? unitValues.signedCommitBonus : 0) +
     input.maintainerAttestations * unitValues.maintainerAttestation;
   const coverage = clamp(input.analyzerCoverage, 0.3, 1.0);
@@ -154,6 +159,7 @@ export interface DimensionSignals {
   architecture: { crossRepoImpact: number; modularityScore: number; cycleFree: boolean };
   testing: { testCoverage: number; ciGreenRate: number; negativeTestRatio: number };
   consistency: { activityMonths: number; releaseCount: number; prSizeDiscipline: number };
+  traction: { starTotal: number };
 }
 
 /**
@@ -174,6 +180,7 @@ export function normalizeSignals(signals: DimensionSignals): Record<DimensionId,
   const { crossRepoImpact, modularityScore, cycleFree } = signals.architecture;
   const { testCoverage, ciGreenRate, negativeTestRatio: negT } = signals.testing;
   const { activityMonths, releaseCount, prSizeDiscipline } = signals.consistency;
+  const { starTotal } = signals.traction;
 
   const quality =
     0.5 * survivalRate * 100 +
@@ -200,7 +207,11 @@ export function normalizeSignals(signals: DimensionSignals): Record<DimensionId,
     0.25 * clamp(Math.min(releaseCount, 12) * 8, 0, 100) +
     0.25 * clamp(prSizeDiscipline * 100, 0, 100);
 
-  return { quality, security, architecture, testing, consistency };
+  // Round-2 traction — star-backed reach on a log scale (ARCHITECTURE.md §6).
+  // saturates at ~100k combined stars; corpus ranks the remainder.
+  const traction = round((100 * Math.log10(1 + Math.max(0, starTotal))) / Math.log10(1 + 1e5), 2);
+
+  return { quality, security, architecture, testing, consistency, traction };
 }
 
 export function computeDimensionScores(
@@ -310,6 +321,10 @@ export function accountingFromEvidence(evidence: EvidenceItem[]): AccountingInpu
     .filter((e) => e.type === 'ACTIVITY_MONTH' && e.positive)
     .reduce((acc, e) => acc + (e.value ?? 1), 0);
 
+  const tractionRepos = distinctRepos(
+    evidence.filter((e) => e.type === 'REPO_TRACTION' && e.positive)
+  );
+
   const signedC = evidence.find((e) => e.type === 'SIGNED_COMMIT_RATIO');
   const signedCommitRatio = signedC?.value ?? 0;
 
@@ -325,6 +340,7 @@ export function accountingFromEvidence(evidence: EvidenceItem[]): AccountingInpu
     ownReviewedPRs,
     reposWithTestsGreenCi,
     activityMonths,
+    tractionRepos,
     signedCommitRatio,
     maintainerAttestations,
     analyzerCoverage

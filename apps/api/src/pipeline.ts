@@ -172,8 +172,17 @@ const score = computeScore({
 
   // ---- 07 CREDENTIAL CHECK ----------------------------------------------
   const needsWallet = developer.linkedWallets.length === 0;
+  const levelWon = computeLevelOf(score.shownScore, finalConfidence, accounting.maintainerAttestations);
+  // ARCHITECTURE.md §6: Verified = score ≥ 60 AND confidence ≥ 0.60 — a
+  // sub-60 shown score (thin-evidence shrinkage) must NOT mint, even with
+  // high volume. Round-2 back-test surfaced this (level 0 clamped to mint).
   const eligibilityPassed =
-    !blocked && score.passedEligibility && finalConfidence >= 0.6 && !needsWallet;
+    !blocked &&
+    score.passedEligibility &&
+    finalConfidence >= 0.6 &&
+    score.shownScore >= 60 &&
+    levelWon >= 1 &&
+    !needsWallet;
 
   let credentialId: string | null = null;
   let attestationAddress: string | null = null;
@@ -198,7 +207,7 @@ const score = computeScore({
       schema: skill.schema,
       skillScore: Math.round(score.shownScore),
       confidencePercent: Math.round(finalConfidence * 100),
-      level: computeLevelOf(score.shownScore, finalConfidence, accounting.maintainerAttestations),
+      level: levelWon,
       issuerTier: 1,
       evidenceRoot,
       analyzerVersion: skill.analyzerVersion,
@@ -303,7 +312,7 @@ export function languageCoverageOf(repos: { primaryLanguage: string | null; isFo
 
 export function signalsFromEvidence(
   skillId: SkillId,
-  repos: { primaryLanguage: string | null; isFork: boolean; testFileCount: number; ciGreen: boolean; commitCount: number }[],
+  repos: { primaryLanguage: string | null; isFork: boolean; testFileCount: number; ciGreen: boolean; commitCount: number; starsAtSnapshot?: number }[],
   evidence: EvidenceItem[]
 ): DimensionSignals {
   const external = evidence.filter((e) => e.type === 'EXTERNAL_MERGE' && e.positive).length;
@@ -324,6 +333,7 @@ export function signalsFromEvidence(
     .reduce((a, e) => a + (e.value ?? 1), 0);
   const totalLoc = win.reduce((a, r) => a + Math.max(r.commitCount, 1), 0);
   const crossRepoImpact = Math.min(0.95, 0.3 + external * 0.12);
+  const starTotal = win.reduce((a, r) => a + (r.starsAtSnapshot ?? 0), 0);
 
   return {
     quality: {
@@ -358,7 +368,8 @@ export function signalsFromEvidence(
       activityMonths,
       releaseCount: releases,
       prSizeDiscipline: Math.min(0.9, 0.5 + Math.min(1, withTests) * 0.1 + (external >= 1 ? 0.1 : 0) + Math.min(0.15, activityMonths / 60))
-    }
+    },
+    traction: { starTotal }
   };
 }
 
@@ -467,14 +478,15 @@ export function predictCredential(
       Math.round((finalConfidence - skeptic.reduction) * 10000) / 10000
     );
   }
-  const issued = !skeptic.blocks && score.passedEligibility && finalConfidence >= 0.6;
+  const level = computeLevelOf(score.shownScore, finalConfidence, accounting.maintainerAttestations);
+  const issued = !skeptic.blocks && score.passedEligibility && finalConfidence >= 0.6 && level >= 1;
   return {
     score,
     signals,
     finalConfidence,
     blocked: skeptic.blocks,
     skepticNotes: skeptic.notes,
-    level: computeLevelOf(score.shownScore, finalConfidence, accounting.maintainerAttestations),
+    level,
     issued,
     reasons: score.eligibilityReasons
   };

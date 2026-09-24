@@ -112,22 +112,39 @@ Real work (bounty paid to the same wallet) → new evidence → stronger credent
 
 ```
 For each dimension d:  s_d ∈ [0,100] = percentile of the developer's signal vs. a reference corpus
-raw = Σ w_d · s_d                     (weights: Quality 20, Security 25, Architecture 15, Testing 25, Consistency 15 — hypothesis, calibrate)
+raw = Σ w_d · s_d
+     (weights after round-2 back-test: Quality 18, Security 22, Architecture 14, Testing 22,
+      Consistency 12, Traction 12 — rebalanced from the round-1 20/25/15/25/15, see docs/backtest-round-1.json)
+
+Dimensions (fold in the round-2 back-test finding that the public-API signal floor
+flattened every dimension to the same percentile):
+   quality, security, architecture, testing, consistency — as round 1
+   traction — star-backed reach of owned repos, normalized on a log scale
+     signal: star_total = Σ stargazers_count over owned (non-fork) repos
+     s_traction = 100 · log10(1 + star_total) / log10(1 + 100000), then percentile-ranks vs. corpus
 
 Evidence units E = Σ of:
    external merged PR ................ 3 each (capped by distinct repos)
    own-repo PR with independent review  2 each
    repo with tests + green CI ......... 2 each (capped per repo)
    months of activity ................. 0.5 each (max 12)
+   traction repo (≥ 200 stars) ........ 2 each (capped 4 → +8)
    signed-commit ratio ≥ 0.5 .......... +2
    independent maintainer attestation . +5
    × analyzer coverage multiplier (share of code actually parsed), range 0.3–1.0
 
-confidence c = 1 − exp(−E / E0)        (E0 ≈ 30, calibrate against back-test)
+confidence c = 1 − exp(−E / E0)        (E0 calibrated per-round by the back-test — round-1 30, round-2 target ~5–10
+                                        so a public-scan developer with 6 months + notable repos clears c ≥ 0.60
+                                        without needing tokenized commit/test depth)
 shown_score  = prior + c · (raw − prior)   (prior = corpus median — shrinks thin evidence toward "average")
 
 Credential eligibility:  c ≥ 0.60  AND  language coverage ≥ 50%  AND  (≥ 2 distinct repos OR ≥ 1 external merged PR)
 ```
+
+The round-2 "traction" evidence makes issuance reachable from the **2-request**
+(fast) public scan the live pipeline actually performs, so the validation
+back-test and the live path agree. Deeper per-repo commit/test/CI detail (the
+tokenized detail path) remains available and adds above the same E base.
 
 **Levels:** Verified (score ≥ 60, conf ≥ 0.60) · Strong (≥ 75, ≥ 0.75) · Expert (≥ 88, ≥ 0.85 + ≥1 Tier-2 attestation).
 

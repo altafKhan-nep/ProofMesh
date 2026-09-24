@@ -71,6 +71,14 @@ describe('computeEvidenceUnits', () => {
     expect(no).toBe(0);
     expect(yes).toBe(2);
   });
+  it('adds round-2 traction units for popular repos, capped at 4', () => {
+    const none = computeEvidenceUnits({ externalMergedPRs: 0, ownReviewedPRs: 0, reposWithTestsGreenCi: 0, activityMonths: 0, tractionRepos: 0, signedCommitRatio: 0, maintainerAttestations: 0, analyzerCoverage: 1 });
+    const four = computeEvidenceUnits({ externalMergedPRs: 0, ownReviewedPRs: 0, reposWithTestsGreenCi: 0, activityMonths: 0, tractionRepos: 4, signedCommitRatio: 0, maintainerAttestations: 0, analyzerCoverage: 1 });
+    const capped = computeEvidenceUnits({ externalMergedPRs: 0, ownReviewedPRs: 0, reposWithTestsGreenCi: 0, activityMonths: 0, tractionRepos: 9, signedCommitRatio: 0, maintainerAttestations: 0, analyzerCoverage: 1 });
+    expect(none).toBe(0);
+    expect(four).toBe(8); // 4 * 2
+    expect(capped).toBe(8); // capped at 4 repos
+  });
   it('clamps analyzer coverage to the 0.3–1.0 range', () => {
     // 2 external merges × 3 units = 6; coverage clamped to 0.3 → 6 * 0.3
     const low = computeEvidenceUnits({ externalMergedPRs: 2, ownReviewedPRs: 0, reposWithTestsGreenCi: 0, activityMonths: 0, signedCommitRatio: 0, maintainerAttestations: 0, analyzerCoverage: 0.1 });
@@ -79,8 +87,12 @@ describe('computeEvidenceUnits', () => {
 });
 
 describe('confidence + shrinkage', () => {
-  it('c = 1 − exp(−E/E0) with E0 = 30', () => {
-    expect(computeConfidence(63.65)).toBeCloseTo(0.880168, 6);
+  it('c = 1 − exp(−E/E0) with round-2 E0 = 8', () => {
+    expect(computeConfidence(63.65)).toBeCloseTo(0.99965, 5);
+  });
+  it('a maintainer with ~8 E (bounded public-scan evidence) clears c ≥ 0.60, the round-2 gate', () => {
+    expect(computeConfidence(8)).toBeCloseTo(0.6321, 4);
+    expect(computeConfidence(8)).toBeGreaterThanOrEqual(0.6);
   });
   it('shrinks thin evidence toward the prior', () => {
     const shown = computeShownScore(95, 0.05, 50);
@@ -116,10 +128,11 @@ describe('computeScore (full deterministic run)', () => {
     security: { securityFindingsOpen: 0, signedCommitRatio: 0.7, dependencyVulns: 0 },
     architecture: { crossRepoImpact: 0.88, modularityScore: 0.9, cycleFree: true },
     testing: { testCoverage: 0.74, ciGreenRate: 0.97, negativeTestRatio: 0.28 },
-    consistency: { activityMonths: 18, releaseCount: 9, prSizeDiscipline: 0.85 }
+    consistency: { activityMonths: 18, releaseCount: 9, prSizeDiscipline: 0.85 },
+    traction: { starTotal: 12000 }
   };
 
-  it('produces a strong score with confidence ~0.88', () => {
+  it('produces a strong score with round-2 confidence (E0=8) ~0.9997', () => {
     const s = computeScore({
       skillId: 'solana-anchor',
       accounting: {
@@ -134,9 +147,9 @@ describe('computeScore (full deterministic run)', () => {
       dimensionSignals: strongSignals,
       languageCoverage: 0.9
     });
-    expect(s.confidence).toBeCloseTo(0.8803, 3);
+    expect(s.confidence).toBeCloseTo(0.99965, 4);
     expect(s.passedEligibility).toBe(true);
-    // shown = 50 + 0.8803*(raw − 50) must lie within [raw, 50] and > threshold
+    // shown = 50 + 0.9997*(raw − 50) must lie within [raw, 50] and > threshold
     expect(s.shownScore).toBeGreaterThanOrEqual(60);
     expect(s.shownScore).toBeLessThanOrEqual(s.rawScore);
     expect(s.rawScore).toBeGreaterThanOrEqual(0);
@@ -149,7 +162,8 @@ describe('computeScore (full deterministic run)', () => {
       security: { securityFindingsOpen: 2, signedCommitRatio: 0.2, dependencyVulns: 1 },
       architecture: { crossRepoImpact: 0.1, modularityScore: 0.3, cycleFree: false },
       testing: { testCoverage: 0.1, ciGreenRate: 0.2, negativeTestRatio: 0.05 },
-      consistency: { activityMonths: 1, releaseCount: 0, prSizeDiscipline: 0.2 }
+      consistency: { activityMonths: 1, releaseCount: 0, prSizeDiscipline: 0.2 },
+      traction: { starTotal: 0 }
     };
     const s = computeScore({
       skillId: 'solana-anchor',
@@ -165,7 +179,7 @@ describe('computeScore (full deterministic run)', () => {
       dimensionSignals: thin,
       languageCoverage: 0.6
     });
-    expect(s.confidence).toBeCloseTo(0.01653, 4);
+    expect(s.confidence).toBeCloseTo(0.06059, 4);
     expect(s.passedEligibility).toBe(false);
     expect(s.shownScore).toBeLessThan(55); // shrunk hard toward prior
   });
@@ -225,6 +239,8 @@ describe('accountingFromEvidence', () => {
       evidence('ACTIVITY_MONTH', true, 9, 'me/own-repo'),
       evidence('SIGNED_COMMIT_RATIO', true, 0.8, 'me/own-repo'),
       evidence('MAINTAINER_ATTESTATION', true, 1, 'org/rustlings'),
+      evidence('REPO_TRACTION', true, 1000, 'me/prettier'),
+      evidence('REPO_TRACTION', true, 500, 'me/other-popular'),
       evidence( 'STATIC_FINDING', false) // unused in accounting
     ];
     const acc = accountingFromEvidence(trail);
@@ -232,6 +248,7 @@ describe('accountingFromEvidence', () => {
     expect(acc.ownReviewedPRs).toBe(2);
     expect(acc.reposWithTestsGreenCi).toBe(1);
     expect(acc.activityMonths).toBe(9);
+    expect(acc.tractionRepos).toBe(2);
     expect(acc.signedCommitRatio).toBe(0.8);
     expect(acc.maintainerAttestations).toBe(1);
     expect(acc.analyzerCoverage).toBe(1);

@@ -63,6 +63,16 @@ accounts and reports precision / recall / accuracy against the labels — the
 - Output: `docs/backtest-round-1.json` — confusion matrix, per-account rows,
   E0 tuning curve, and a data-derived reference-corpus proposal.
 
+**Round-2 signals (shipped):** the back-test proved the 2-request public scan
+flattened every dimension, and confidence was structurally capped at ~11% by
+`E0=30`. Round 2 adds a **traction** dimension (star-backed reach, from the free
+`repos` call already made) with its own evidence units (`REPO_TRACTION`, ≥200
+stars → +2 each, capped at 4) and recalibrates `E0=8` so a maintainer with ~8
+evidence units clears `c ≥ 0.60`. It also re-gated issuance on `shown score ≥ 60`
+(ARCHITECTURE.md §6 Verified level) — a sub-60 score no longer mints a "Verified"
+credential even with sufficient confidence. Full 30-account re-run: next GitHub
+rate window or `GITHUB_TOKEN`.
+
 ## API surface
 
 `GET /health` · `GET /api/developers[/:handle]` · `GET/POST/DELETE /api/listings` · `POST /api/analyze` ·

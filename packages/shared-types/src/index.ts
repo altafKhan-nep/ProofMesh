@@ -48,7 +48,8 @@ export type EvidenceType =
   | 'REVERT' // post-merge revert / fix-up
   | 'CODE_SURVIVAL' // authored lines still present after 90 days
   | 'REVIEW_REVIEWED'
-  | 'RELEASE';
+  | 'RELEASE'
+  | 'REPO_TRACTION'; // owned repo with ≥ 200 stars (round-2 public-scan signal)
 export const EVIDENCE_TYPES: EvidenceType[] = [
   'EXTERNAL_MERGE',
   'OWN_PRB_REVIEWED',
@@ -62,7 +63,8 @@ export const EVIDENCE_TYPES: EvidenceType[] = [
   'REVERT',
   'CODE_SURVIVAL',
   'REVIEW_REVIEWED',
-  'RELEASE'
+  'RELEASE',
+  'REPO_TRACTION'
 ];
 
 /** A single, source-linked, typed fact. Derived metrics and hashes only — never raw repo contents. */
@@ -111,16 +113,22 @@ export const DIMENSIONS = [
   'security',
   'architecture',
   'testing',
-  'consistency'
-] as const;
+  'consistency',
+  'traction' as const
+];
 export type DimensionId = (typeof DIMENSIONS)[number];
 
+/** Round-2 weights (ARCHITECTURE.md §6): back-test showed live signals floor
+ *  every dimension at percentile 0 except where free repo metadata (stars,
+ *  release cadence) actually differentiates. Traction carries 12% so star-backed
+ *  reach can move the raw score without dominating it. */
 export const DIMENSION_WEIGHTS: Record<DimensionId, number> = {
-  quality: 0.2,
-  security: 0.25,
-  architecture: 0.15,
-  testing: 0.25,
-  consistency: 0.15
+  quality: 0.18,
+  security: 0.22,
+  architecture: 0.14,
+  testing: 0.22,
+  consistency: 0.12,
+  traction: 0.12
 };
 
 /** Winning levels (ARCHITECTURE.md §6) */
@@ -268,6 +276,7 @@ export interface EvidenceAccounting {
   ownReviewedPRs: number;
   reposWithTestsGreenCi: number;
   activityMonths: number;
+  tractionRepos: number; // distinct owned repos ≥ 200 stars
   signedCommitBonus: number; // 0 or 2
   maintainerAttestations: number;
   analyzerCoverage: number; // 0.3 – 1.0
@@ -275,17 +284,23 @@ export interface EvidenceAccounting {
 }
 
 export const CALIBRATION = {
-  E0: 30,
+  /** Round-2 back-test target: public-scan evidence (activity months + traction
+   *  repos) must let a genuinely active maintainer clear c ≥ 0.60, where E0=30
+   *  structurally capped live confidence at ~11% (see docs/backtest-round-1.json). */
+  E0: 8,
   priorPercentile: 50,
   unitValues: {
     externalMergedPR: 3,
     ownReviewedPR: 2,
     repoTestsGreenCi: 2,
     activityMonth: 0.5,
+    tractionRepo: 2,
     signedCommitBonus: 2,
     maintainerAttestation: 5
   },
   activityMonthCap: 12,
+  tractionRepoStars: 200,
+  tractionRepoCap: 4,
   minConfidence: 0.6,
   minLanguageCoverage: 0.5,
   minRepos: 2
