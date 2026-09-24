@@ -70,8 +70,22 @@ flattened every dimension, and confidence was structurally capped at ~11% by
 stars → +2 each, capped at 4) and recalibrates `E0=8` so a maintainer with ~8
 evidence units clears `c ≥ 0.60`. It also re-gated issuance on `shown score ≥ 60`
 (ARCHITECTURE.md §6 Verified level) — a sub-60 score no longer mints a "Verified"
-credential even with sufficient confidence. Full 30-account re-run: next GitHub
-rate window or `GITHUB_TOKEN`.
+credential even with sufficient confidence.
+
+**Full 30/30 round-2 validation (complete):** `pnpm backtest` ran the entire
+hand-labeled 30-account corpus on one fresh unauthenticated window (58/60
+requests, zero rate-limit truncation). Result: **recall 0, precision 0, accuracy
+0.167** — the engine issued to none of the 25 positive maintainers. Root cause
+(document auto-written into `docs/backtest-round-1.json#conclusion`): the
+2-request public scan is non-differentiating — all 30 accounts land in an
+18.9-unit raw-score band (`[0, 18.9]` of 0–100) with top maintainers
+indistinguishable from org/bot accounts. The honesty gates did exactly their job
+(E0=8 makes confidence genuine — `sindresorhus` clears 60% — but thin fast-scan
+evidence compresses every shown score below the `≥60` issue bar; traction
+correctly *rejects* high-star orgs). Issuance recall requires **more data, not
+looser gates**: a `GITHUB_TOKEN` deep-repo fetch (traffic, merged refactors,
+releases, co-author lineage) — the live API deep path already issues (seeded L3
+maintainers). Crunched profiles are disk-cached (29/30) for that run.
 
 ## API surface
 
