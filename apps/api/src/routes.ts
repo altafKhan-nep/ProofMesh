@@ -1,7 +1,15 @@
 import type { FastifyInstance, FastifyReply, FastifyRequest } from 'fastify';
-import type { AuditEventType, AuditOutcome, AuthSession, SseEvent } from '@proofmesh/shared-types';
-import { SKILLS, LEVEL_INFO } from '@proofmesh/shared-types';
-import { validateAttestationRecord, deriveCredentialPda } from '@proofmesh/verifier-sdk';
+import { createHmac, timingSafeEqual } from 'node:crypto';
+import type {
+  AuditEventType,
+  AuditOutcome,
+  AuthSession,
+  CredentialLevel,
+  SseEvent,
+  SkillId
+} from '@proofmesh/shared-types';
+import { ISSUANCE_GATE, SKILLS, LEVEL_INFO, isSkillId } from '@proofmesh/shared-types';
+import { validateAttestationRecord, deriveCredentialPda, readAttestationFromRpc } from '@proofmesh/verifier-sdk';
 import type { Store } from './store.js';
 import { RateLimiter, rateLimitsFromEnv } from './rate-limit.js';
 import {
@@ -25,8 +33,12 @@ import {
   type PendingOAuth
 } from './github-oauth.js';
 import type { RateLimitRules } from './rate-limit.js';
-import { runAnalysis } from './pipeline.js';
+import { queueAnalysisJob, queueMode } from './queue.js';
+import { llmConfigured } from './llm.js';
+import { emitFact, drain, subscribe, unsubscribe, sweepFactBus } from './fact-bus.js';
 import { hydrateSeededRuns } from './hydrate.js';
+import { predictCredential } from './pipeline.js';
+import { originAllowed } from './cors.js';
 import {
   CSRF_COOKIE,
   CSRF_HEADER,
@@ -39,6 +51,7 @@ import {
   newSession,
   safeEqual,
   sessionCookieOpts,
+  siwsOrigin,
   touchSession,
   validateVerifyAgainstChallenge,
   verifyActionProof,
@@ -62,6 +75,86 @@ export interface RouteContext {
 }
 
 type RequestWithAuth = FastifyRequest & { auth?: AuthSession; authVia?: 'bearer' | 'cookie' };
+
+/**
+ * The canonical ProofMesh issuer.
+ *
+ * `verifyConstraints` treats a supplied allowlist as authoritative, including
+ * the empty array, so this must always be non-empty — an unset variable must
+ * not degrade into "trust everyone".
+ */
+const ISSUER_ADDRESS = '6TGUP796erCCpxhosXToA4YNv4dxwz1yc7rmTvZEYagZ';
+
+function issuerAllowlist(): string[] {
+  const extra = (process.env.ISSUER_ALLOWLIST ?? '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return [ISSUER_ADDRESS, ...extra.filter((a) => a !== ISSUER_ADDRESS)];
+}
+
+/** Credential levels arrive from storage/chain; clamp before indexing. */
+function clampLevel(level: number): CredentialLevel {
+  if (!Number.isFinite(level)) return 0;
+  return Math.min(3, Math.max(0, Math.trunc(level))) as CredentialLevel;
+}
+
+/** Hard ceiling on how many rows one search may return, regardless of input. */
+const SEARCH_MAX_LIMIT = 100;
+
+/**
+ * Validate `POST /api/search`. The endpoint is unauthenticated, so the body is
+ * untrusted: every field is range-checked instead of cast. Returning
+ * `{ ok: false }` (rather than throwing) lets the route emit a 400.
+ */
+function parseSearchQuery(
+  body: unknown
+):
+  | { ok: true; value: { skills?: SkillId[]; minScore?: number; minConfidence?: number; minLevel?: number; activeWithinDays?: number; limit: number } }
+  | { ok: false; issues: string[] } {
+  const issues: string[] = [];
+  const src = (body ?? {}) as Record<string, unknown>;
+
+  const num = (key: string, min: number, max: number): number | undefined => {
+    const v = src[key];
+    if (v === undefined || v === null) return undefined;
+    if (typeof v !== 'number' || !Number.isFinite(v)) {
+      issues.push(`${key} must be a finite number`);
+      return undefined;
+    }
+    if (v < min || v > max) {
+      issues.push(`${key} must be between ${min} and ${max}`);
+      return undefined;
+    }
+    return v;
+  };
+
+  let skills: SkillId[] | undefined;
+  const rawSkills = src.skills;
+  if (rawSkills !== undefined && rawSkills !== null) {
+    if (!Array.isArray(rawSkills)) {
+      issues.push('skills must be an array of skill ids');
+    } else {
+      const bad = rawSkills.filter((s) => !isSkillId(s));
+      if (bad.length > 0) issues.push(`unknown skill(s): ${bad.map(String).join(', ')}`);
+      else skills = rawSkills as SkillId[];
+    }
+  }
+
+  const minScore = num('minScore', 0, 100);
+  const minConfidence = num('minConfidence', 0, 1);
+  const minLevel = num('minLevel', 1, 3);
+  const activeWithinDays = num('activeWithinDays', 1, 3650);
+  // Default and clamp the limit here; `store.search` also clamps defensively.
+  const rawLimit = num('limit', 1, SEARCH_MAX_LIMIT);
+  const limit = rawLimit ?? 20;
+
+  if (issues.length > 0) return { ok: false, issues };
+  return {
+    ok: true,
+    value: { skills, minScore, minConfidence, minLevel, activeWithinDays, limit }
+  };
+}
 
 /** Read Fastify's parsed cookies without adding a plugin dependency. */
 function readCookie(req: FastifyRequest, name: string): string | undefined {
@@ -253,8 +346,9 @@ function requireActionProof(store: Store) {
 export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): Promise<void> {
   const store = ctx.store;
   const adminWallets = ctx.adminWallets;
-  const limiter = ctx.limiter ?? new RateLimiter(ctx.rateLimits ?? rateLimitsFromEnv());
-  const rules = ctx.rateLimits ?? rateLimitsFromEnv();
+  const rateLimitRules = ctx.rateLimits ?? rateLimitsFromEnv();
+  const limiter = ctx.limiter ?? new RateLimiter(rateLimitRules);
+  const rules = rateLimitRules;
 
   /** Client identity for rate limiting: IP always, wallet when authenticated. */
   const rateKey = (req: RequestWithAuth): string =>
@@ -316,8 +410,68 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     status: 'ok',
     sourceOfTruth: 'docs/stitch_proofmesh_design_system_components',
     store: { developers: store.listDevelopers().length, jobs: store.jobs.size },
-    deterministicOnly: !process.env.ANTHROPIC_API_KEY
+    // Report the mode that is actually in effect. This previously read
+    // ANTHROPIC_API_KEY while the code calls Gemini, so /health claimed
+    // `deterministicOnly: false` on a server with no usable LLM key.
+    llm: llmConfigured(),
+    deterministicOnly: !llmConfigured(),
+    queue: queueMode(),
+    issuer: ISSUER_ADDRESS
   }));
+
+
+  // ------------------------------------------------------- GitHub App webhook
+  /**
+   * GitHub App webhook.
+   *
+   * Fails CLOSED. The previous guard was `if (secret && sig)`, so an unset
+   * secret OR an omitted header both skipped verification entirely and the
+   * endpoint answered `{ok:true}` to anyone. It also wrote a fresh
+   * `Date.now()`-keyed entry into `store.metadata` on every hit — an unbounded,
+   * unauthenticated write into the map that gets serialised to Postgres every
+   * five seconds, i.e. a durable write-amplification DoS.
+   */
+  const WEBHOOK_EVENTS = new Set(['push', 'ping', 'installation', 'installation_repositories']);
+  app.post('/api/github/webhook', { preHandler: limit }, async (req, reply) => {
+    const secret = process.env.GITHUB_APP_WEBHOOK_SECRET;
+    if (!secret) {
+      // Refuse to run an unauthenticated public endpoint.
+      return reply.code(503).send({ error: 'webhook_disabled_no_secret' });
+    }
+    const sig = req.headers['x-hub-signature-256'];
+    if (typeof sig !== 'string' || sig.length === 0) {
+      return reply.code(401).send({ error: 'missing_signature' });
+    }
+    const raw = (req as unknown as { rawBody?: string }).rawBody ?? '';
+    if (!raw) return reply.code(400).send({ error: 'raw_body_unavailable' });
+
+    const expected = 'sha256=' + createHmac('sha256', secret).update(raw).digest('hex');
+    // Constant-time: a plain `!==` leaks the expected digest byte by byte.
+    const a = Buffer.from(sig);
+    const b = Buffer.from(expected);
+    if (a.length !== b.length || !timingSafeEqual(a, b)) {
+      return reply.code(401).send({ error: 'invalid_signature' });
+    }
+
+    const event = req.headers['x-github-event'];
+    const eventName = typeof event === 'string' ? event : 'unknown';
+    if (!WEBHOOK_EVENTS.has(eventName)) {
+      return reply.code(202).send({ ok: true, ignored: eventName });
+    }
+
+    // Bounded, fixed-key accounting instead of one growing key per request.
+    const key = 'github-webhook:last';
+    store.metadata.set(key, JSON.stringify({ event: eventName, at: new Date().toISOString() }));
+
+    audit(req, {
+      type: 'webhook.received',
+      outcome: 'success',
+      method: req.method,
+      route: '/api/github/webhook',
+      meta: { event: eventName }
+    });
+    return { ok: true, event: eventName };
+  });
 
   // ------------------------------------------------------------------ auth
   const auth = { preHandler: requireAuth(store) };
@@ -325,6 +479,14 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   const pendingOAuth = new Map<string, PendingOAuth>();
   const oauthCfg = ctx.githubOAuth;
   const oauthReady = Boolean(oauthCfg && oauthConfigured(oauthCfg));
+
+  /** The origin the calling page runs on, so SIWS messages pass wallet validation. */
+  const originFor = (req: FastifyRequest): { domain: string; uri: string } =>
+    siwsOrigin({
+      origin: req.headers.origin ?? null,
+      protocol: req.protocol,
+      hostname: req.hostname
+    });
 
   app.post('/api/auth/challenge', { preHandler: limit }, async (req, reply) => {
     const body = (req.body ?? {}) as {
@@ -355,7 +517,9 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     }
     const challenge = newChallenge(
       wallet,
-      purpose === 'signin' ? {} : { purpose, subject, ...(purpose === 'attest' ? { repo, skill } : {}) }
+      purpose === 'signin'
+        ? { origin: originFor(req) }
+        : { purpose, subject, ...(purpose === 'attest' ? { repo, skill } : {}), origin: originFor(req) }
     );
     const issued = store.issueChallenge(challenge);
     audit(req, {
@@ -449,7 +613,8 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
       wallet: session.wallet,
       method,
       path,
-      body: body.action ?? {}
+      body: body.action ?? {},
+      origin: originFor(req)
     });
     store.issueActionChallenge(challenge);
     return challenge;
@@ -689,7 +854,9 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     if (!dev) {
       try {
         const { ingestGitHub } = await import('./github.js');
-        const ingested = await ingestGitHub(store, handle, { maxDetailRepos: 1 });
+        // Must match the analyze depth, or bind/analyze order decides how much
+        // evidence the scoring engine sees (they previously disagreed: 1 vs 4).
+        const ingested = await ingestGitHub(store, handle);
         if (!store.developers.has(ingested.developer.id)) {
           store.developers.set(ingested.developer.id, ingested.developer);
           store.repos.set(ingested.developer.id, ingested.repos);
@@ -731,8 +898,10 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
       llmEnabled?: boolean;
       wallet?: string;
     };
-    const skillId = (body.skillId ?? 'solana-anchor') as keyof typeof SKILLS;
-    if (!SKILLS[skillId]) return reply.code(400).send({ error: 'unknown_skill' });
+    const skillId = body.skillId ?? 'solana-anchor';
+    // `SKILLS['toString']` is a truthy inherited member, so a bare lookup test
+    // would pass and then crash the pipeline on `FAMILY[skillId].includes`.
+    if (!isSkillId(skillId)) return reply.code(400).send({ error: 'unknown_skill' });
 
     const handle = body.githubHandle ?? body.githubUsername ?? '';
     if (!handle) return reply.code(400).send({ error: 'developer_required' });
@@ -762,7 +931,7 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     if (!dev && body.skillId && (skillId in SKILLS)) {
       try {
         const { ingestGitHub } = await import('./github.js');
-        const ingested = await ingestGitHub(store, handle, { maxDetailRepos: 4 });
+        const ingested = await ingestGitHub(store, handle);
         if (!store.developers.has(ingested.developer.id)) {
           store.developers.set(ingested.developer.id, ingested.developer);
           store.repos.set(ingested.developer.id, ingested.repos);
@@ -802,12 +971,15 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
       developerId: dev.id,
       githubUsername: dev.githubHandle,
       skillId,
-      llmEnabled: !!body.llmEnabled && !!process.env.ANTHROPIC_API_KEY,
+      // Was gated on ANTHROPIC_API_KEY while llm.ts reads GEMINI_API_KEY,
+      // so with the documented setup the reviewer/skeptic never ran at all.
+      llmEnabled: !!body.llmEnabled && llmConfigured(),
       mintWallet: requestedWallet || null
     });
 
-    const emit = (e: SseEvent) => emitFact(job.id, e);
-    void runAnalysis(store, job, emit).catch((err: unknown) => {
+    // Must be caught: an unhandled rejection here terminates the process
+    // (Node's default since v15) and turns one Redis blip into an outage.
+    void queueAnalysisJob(store, job).catch((err: unknown) => {
       job.status = 'failed';
       job.error = err instanceof Error ? err.message : String(err);
       emitFact(job.id, { type: 'error', message: job.error });
@@ -832,14 +1004,13 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
 
     reply.hijack();
     const raw = reply.raw;
-    const origin = req.headers.origin ?? '*';
+    const origin = originAllowed(req.headers.origin) ? req.headers.origin ?? '*' : undefined;
     raw.writeHead(200, {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache, no-transform',
       Connection: 'keep-alive',
       'X-Accel-Buffering': 'no',
-      'Access-Control-Allow-Origin': origin,
-      Vary: 'Origin'
+      ...(origin ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {})
     });
     raw.write(`data: ${JSON.stringify({ type: 'hello', jobId: job.id })}\n\n`);
 
@@ -864,7 +1035,18 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     const { handle } = req.params as { handle: string };
     const dev = store.findDeveloper(handle);
     if (!dev) return reply.code(404).send({ error: 'developer_not_found' });
-    const score = store.scoreFor(dev.id, 'solana-anchor') ?? store.scoreFor(dev.id, 'typescript');
+
+    // `?skill=` selects a specific skill pack. Without it we fall back to the
+    // historical default, but a caller asking for `rust` must never be handed
+    // the solana-anchor breakdown.
+    const wanted = (req.query as { skill?: string } | undefined)?.skill;
+    let score: ReturnType<Store['scoreFor']>;
+    if (wanted !== undefined) {
+      if (!isSkillId(wanted)) return reply.code(400).send({ error: 'unknown_skill' });
+      score = store.scoreFor(dev.id, wanted);
+    } else {
+      score = store.scoreFor(dev.id, 'solana-anchor') ?? store.scoreFor(dev.id, 'typescript');
+    }
     const credential = score ? store.credentialFor(dev.id, score.skillId) : undefined;
     return {
       developer: dev,
@@ -878,8 +1060,8 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   // ------------------------------------------------------------- public verify
   app.get('/api/verify/:wallet/:skill', async (req, reply) => {
     const { wallet, skill } = req.params as { wallet: string; skill: string };
-    const skillId = skill as keyof typeof SKILLS;
-    if (!SKILLS[skillId]) return reply.code(404).send({ error: 'unknown_skill' });
+    const skillId = skill;
+    if (!isSkillId(skillId)) return reply.code(404).send({ error: 'unknown_skill' });
     const dev = store.findDeveloperByWallet(wallet);
     const score = dev && store.scoreFor(dev.id, skillId);
     const credential = dev && store.credentialFor(dev.id, skillId);
@@ -891,7 +1073,13 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     // stored attestationAddress may predate an SDK derivation fix.
     const pda = await deriveCredentialPda(wallet, skillId);
 
-    // Constraint-check through the shared SDK logic (RPC-grade, Off-chain mirror).
+    // Constraint-check through the shared SDK logic (RPC-grade, off-chain mirror).
+    //
+    // These thresholds were `minScore: 0, minConfidence: 0` with NO issuer
+    // allowlist, so `verifyConstraints` reduced to "not revoked, not expired,
+    // level >= 1" — i.e. `valid: true` meant only "a row exists in Postgres",
+    // while the README markets this SDK as trustless. It now enforces the same
+    // issuance gate as the pipeline and requires the canonical issuer.
     const grade = validateAttestationRecord(
       {
         wallet,
@@ -903,51 +1091,123 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
         expiresAt: credential.expiresAt,
         status: credential.status
       },
-      { minScore: 0, minConfidence: 0 }
+      {
+        minScore: ISSUANCE_GATE.minShownScore,
+        minConfidence: ISSUANCE_GATE.minConfidence,
+        issuerAllowlist: issuerAllowlist()
+      }
     );
 
-    return grade.valid
-      ? {
-          valid: true,
-          wallet,
-          skillId: credential.skillId,
-          skillLabel: SKILLS[skillId].label,
-          score: credential.skillScore,
-          confidence: credential.confidencePercent,
-          level: credential.level,
-          levelLabel: LEVEL_INFO[credential.level].label,
-          issuerAddress: credential.issuerAddress,
-          schema: credential.schema,
-          analyzerVersion: credential.analyzerVersion,
-          attestationAddress: pda.address,
-          evidenceRoot: credential.evidenceRoot,
-          reportUri: credential.reportUri,
-          dev: { handle: dev.githubHandle, githubUsername: dev.githubUsername, avatarUrl: dev.avatarUrl },
-          evidence: store.evidenceFor(dev.id),
-          repos: store.reposFor(dev.id),
-          issuedAt: credential.issuedAt,
-          expiresAt: credential.expiresAt,
-          status: credential.status
-        }
-      : reply.code(404).send({ valid: false, reasons: grade.reasons, wallet, skillId });
+    if (!grade.valid) {
+      return reply.code(404).send({ valid: false, reasons: grade.reasons, wallet, skillId });
+    }
+
+    // Reconcile against chain. If the on-chain record disagrees with the
+    // off-chain one, say so instead of silently serving the DB row.
+    let onChain: { status: string; skillScore: number; confidencePercent: number; level: number; evidenceRoot: string } | null = null;
+    let onChainMismatch: string[] = [];
+    try {
+      const rpcUrl = process.env.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com';
+      const att = await readAttestationFromRpc({ wallet, skillId, rpcUrl });
+      if (!att) {
+        onChainMismatch.push('No on-chain credential found at the derived PDA (mint pending or never submitted).');
+      } else {
+        onChain = {
+          status: att.status,
+          skillScore: att.skillScore,
+          confidencePercent: att.confidencePercent,
+          level: att.level,
+          evidenceRoot: att.evidenceRoot
+        };
+        if (att.status !== 'ISSUED') onChainMismatch.push(`On-chain status is ${att.status}.`);
+        if (att.skillScore !== credential.skillScore)
+          onChainMismatch.push(`On-chain score ${att.skillScore} ≠ record ${credential.skillScore}.`);
+        if (att.confidencePercent !== credential.confidencePercent)
+          onChainMismatch.push(`On-chain confidence ${att.confidencePercent}% ≠ record ${credential.confidencePercent}%.`);
+      }
+    } catch (err) {
+      // RPC unreachable must not make the page unusable; report it explicitly.
+      onChainMismatch.push(`On-chain check failed: ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    return {
+      valid: true,
+      wallet,
+      skillId: credential.skillId,
+      skillLabel: SKILLS[skillId].label,
+      score: credential.skillScore,
+      confidence: credential.confidencePercent,
+      level: credential.level,
+      levelLabel: LEVEL_INFO[clampLevel(credential.level)].label,
+      issuerAddress: credential.issuerAddress,
+      schema: credential.schema,
+      analyzerVersion: credential.analyzerVersion,
+      attestationAddress: pda.address,
+      evidenceRoot: credential.evidenceRoot,
+      reportUri: credential.reportUri,
+      dev: { handle: dev.githubHandle, githubUsername: dev.githubUsername, avatarUrl: dev.avatarUrl },
+      evidence: store.evidenceFor(dev.id),
+      repos: store.reposFor(dev.id),
+      issuedAt: credential.issuedAt,
+      expiresAt: credential.expiresAt,
+      status: credential.status,
+      onChain,
+      onChainMismatch
+    };
   });
 
   // --------------------------------------------------------------------- badge
   app.get('/api/badge/:wallet/:skill.svg', async (req, reply) => {
     const { wallet, skill } = req.params as { wallet: string; skill: string };
-    const skillId = skill as keyof typeof SKILLS;
+    const skillId = skill;
+    if (!isSkillId(skillId)) {
+      reply.type('image/svg+xml').send(renderFallbackBadge('UNKNOWN SKILL'));
+      return;
+    }
     const dev = store.findDeveloperByWallet(wallet);
+    // `credentialFor` now enforces expiry and status, so an expired or revoked
+    // credential falls through to the fallback badge. Previously it ignored
+    // `expiresAt` entirely: `/api/verify` would 404 while this endpoint happily
+    // served a green VERIFIED badge (cached for an hour) for the same pair.
     const credential = dev && store.credentialFor(dev.id, skillId);
     if (!dev || !credential || credential.wallet !== wallet) {
-      reply.type('image/svg+xml').send(
-        renderFallbackBadge('INSUFFICIENT EVIDENCE')
-      );
+      reply
+        .type('image/svg+xml')
+        .header('Cache-Control', 'public, max-age=300')
+        .send(renderFallbackBadge('INSUFFICIENT EVIDENCE'));
+      return;
+    }
+    // A badge is a public claim; do not mint one for a credential that fails
+    // the same issuance gate `/api/verify` enforces.
+    const badgeGrade = validateAttestationRecord(
+      {
+        wallet,
+        skillId: credential.skillId,
+        skillScore: credential.skillScore,
+        confidencePercent: credential.confidencePercent,
+        level: credential.level,
+        issuerAddress: credential.issuerAddress,
+        expiresAt: credential.expiresAt,
+        status: credential.status
+      },
+      {
+        minScore: ISSUANCE_GATE.minShownScore,
+        minConfidence: ISSUANCE_GATE.minConfidence,
+        issuerAllowlist: issuerAllowlist()
+      }
+    );
+    if (!badgeGrade.valid) {
+      reply
+        .type('image/svg+xml')
+        .header('Cache-Control', 'public, max-age=300')
+        .send(renderFallbackBadge('NOT CURRENTLY VERIFIED'));
       return;
     }
     const { renderBadgeSvg } = await import('./badge.js');
     reply
       .type('image/svg+xml')
-      .header('Cache-Control', 'public, max-age=3600')
+      // Short TTL: revocation must become visible quickly.
+      .header('Cache-Control', 'public, max-age=300')
       .send(
         renderBadgeSvg({
           skillLabel: SKILLS[skillId].label,
@@ -960,24 +1220,17 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
       );
   });
 
+  // ------------------------------------------------------------- stats
+  app.get('/api/stats', { preHandler: limit }, async () => store.stats());
+
   // ------------------------------------------------------------- search
-  app.post('/api/search', async (req) => {
-    const body = (req.body ?? {}) as {
-      skills?: string[];
-      minScore?: number;
-      minConfidence?: number;
-      minLevel?: number;
-      activeWithinDays?: number;
-      limit?: number;
-    };
-    return store.search({
-      skills: body.skills as never,
-      minScore: body.minScore,
-      minConfidence: body.minConfidence,
-      minLevel: body.minLevel,
-      activeWithinDays: body.activeWithinDays,
-      limit: body.limit
-    });
+  app.post('/api/search', { preHandler: limit }, async (req, reply) => {
+    // Unauthenticated, therefore untrusted: validate every field rather than
+    // casting. An unchecked `limit: -1` previously made `slice(0, -1)` return
+    // the entire candidate set.
+    const parsed = parseSearchQuery(req.body);
+    if (!parsed.ok) return reply.code(400).send({ error: 'invalid_query', issues: parsed.issues });
+    return store.search(parsed.value);
   });
 
   // --------------------------------------------------------- Tier-2 attestation
@@ -1100,6 +1353,32 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
     const evidence = store.evidenceFor(subject.id);
     store.evidence.set(subject.id, [...evidence, attestationEvidence(record)]);
 
+    // Re-score immediately. Appending evidence without re-running the pipeline
+    // meant a Tier-2 attestation had NO observable effect: `predictCredential`
+    // would compute a different score, but every stored score, the stored
+    // credential and the public verify page all kept the pre-attestation values
+    // — so the whole Expert tier was unreachable in practice. The background
+    // job re-runs the full pipeline, which also re-mints via `update_credential`
+    // so the on-chain record follows.
+    const rescored = predictCredential(
+      record.skill as SkillId,
+      store.reposFor(subject.id),
+      store.evidenceFor(subject.id),
+      { accountType: subject.accountType ?? 'User' }
+    );
+    const reanalysis = store.createJob({
+      developerId: subject.id,
+      githubUsername: subject.githubHandle,
+      skillId: record.skill as SkillId,
+      llmEnabled: false,
+      mintWallet: rescored.issued ? (subject.linkedWallets[0]?.wallet ?? null) : null
+    });
+    void queueAnalysisJob(store, reanalysis).catch((err: unknown) => {
+      // Never let the attestation request fail because a re-analysis could not
+      // be queued; the attestation itself is already durable.
+      app.log.warn(`post-attestation re-analysis not queued: ${String(err)}`);
+    });
+
     audit(req, {
       type: 'attest.attempt',
       outcome: 'success',
@@ -1181,36 +1460,6 @@ export async function registerRoutes(app: FastifyInstance, ctx: RouteContext): P
   });
 }
 
-// ---------------------------------------------------------------------------
-// Tiny per-job fact bus (SSE): facts are buffered per job id, then replayed
-// to late subscribers. Production swap: Redis pub/sub + BullMQ job state.
-// ---------------------------------------------------------------------------
-
-const buffers = new Map<string, SseEvent[]>();
-const subscribers = new Map<string, Set<(e: SseEvent) => void>>();
-
-function emitFact(jobId: string, e: SseEvent): void {
-  const buf = buffers.get(jobId) ?? [];
-  buf.push(e);
-  buffers.set(jobId, buf);
-  for (const sub of subscribers.get(jobId) ?? []) sub(e);
-}
-
-function drain(jobId: string): SseEvent[] {
-  const buf = buffers.get(jobId) ?? [];
-  buffers.set(jobId, []);
-  return buf;
-}
-
-function subscribe(jobId: string, fn: (e: SseEvent) => void): void {
-  const set = subscribers.get(jobId) ?? new Set();
-  set.add(fn);
-  subscribers.set(jobId, set);
-}
-
-function unsubscribe(jobId: string, fn: (e: SseEvent) => void): void {
-  subscribers.get(jobId)?.delete(fn);
-}
 
 function renderFallbackBadge(label: string): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="320" height="96" viewBox="0 0 320 96">
