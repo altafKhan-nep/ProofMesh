@@ -1,12 +1,20 @@
 packages:
   - apps/*
   - packages/*
-  - workers/*
+  - mcp-server
 allowBuilds:
   bufferutil: true
   esbuild: true
   utf-8-validate: true
+  workerd: true
+  prisma: true
+  "@prisma/client": true
+  msgpackr-extract: true
 onlyBuiltDependencies:
   - bufferutil
   - esbuild
   - utf-8-validate
+  - prisma
+  - "@prisma/client"
+  - workerd
+  - msgpackr-extract

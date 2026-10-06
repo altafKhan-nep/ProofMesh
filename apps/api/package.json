@@ -16,14 +16,20 @@
     "@fastify/cookie": "^11.0.2",
     "@fastify/cors": "^10.0.2",
     "@noble/curves": "^1.9.0",
+    "@prisma/client": "^7.10.0",
     "@proofmesh/scoring-engine": "workspace:*",
     "@proofmesh/shared-types": "workspace:*",
     "@proofmesh/verifier-sdk": "workspace:*",
     "@solana/web3.js": "^1.99.0",
-    "fastify": "^5.2.0"
+    "bullmq": "^6.3.11",
+    "fastify": "^5.2.0",
+    "ioredis": "^6.0.0",
+    "pg": "^8.23.1",
+    "prisma": "8.0.0-rc.19"
   },
   "devDependencies": {
     "@types/node": "^22.10.2",
+    "@types/pg": "^8.23.1",
     "tsx": "^4.19.2",
     "typescript": "^5.6.3",
     "vitest": "^2.1.8"

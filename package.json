@@ -13,7 +13,8 @@
     "lint": "pnpm -r lint",
     "typecheck": "pnpm -r typecheck",
     "seed": "pnpm --filter @proofmesh/api seed",
-    "backtest": "pnpm --filter @proofmesh/api backtest"
+    "backtest": "pnpm --filter @proofmesh/api backtest",
+    "mcp": "pnpm --filter @proofmesh/mcp-server start"
   },
   "devDependencies": {
     "typescript": "^5.6.3"
