@@ -184,4 +184,36 @@ describe('auth + gated routes', () => {
       await server.close();
     }
   });
+
+  it('a retry issues a fresh challenge instead of hitting the per-wallet cap', async () => {
+    const server = await makeServer(new Set());
+    const url = baseUrl(server);
+    try {
+      const kp = Keypair.generate();
+      const wallet = kp.publicKey.toBase58();
+      // Fire several un-consumed challenges for the same wallet, as a user
+      // clicking SIGN IN after a hung wallet popup would.
+      let latest: string | null = null;
+      for (let i = 0; i < 8; i++) {
+        const res = await fetch(`${url}/api/auth/challenge`, {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ wallet })
+        });
+        expect(res.status).toBe(200);
+        latest = ((await res.json()) as { message: string }).message;
+      }
+      expect(latest).toBeTruthy();
+      // The newest challenge must still verify — retries did not lock the wallet out.
+      const sig = ed25519.sign(new TextEncoder().encode(latest), kp.secretKey.slice(0, 32));
+      const verify = await fetch(`${url}/api/auth/verify`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ wallet, message: latest, signature: Buffer.from(sig).toString('base64') })
+      });
+      expect(verify.status).toBe(200);
+    } finally {
+      await server.close();
+    }
+  });
 });

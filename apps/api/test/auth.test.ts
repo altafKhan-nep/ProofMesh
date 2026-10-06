@@ -10,6 +10,7 @@ import {
   newSession,
   newSessionToken,
   parseSiwsMessage,
+  siwsOrigin,
   validateVerifyAgainstChallenge,
   verifySiwsSignature
 } from '../src/auth.js';
@@ -44,6 +45,51 @@ describe('auth primitives', () => {
     expect(msg).toContain(`Nonce: n-1`);
     expect(msg).toContain('Version: 1');
     expect(msg).toContain(`Chain ID: ${SIWS_CHAIN_ID}`);
+  });
+
+  // Phantom renders sign-message requests by running the reference parser from
+  // `@solana/wallet-standard-util` over the UTF-8 bytes. When that parser fails,
+  // Phantom rejects the popup with "cannot be shown due to invalid formatting",
+  // so the emitted message must match the parser byte-for-byte (address on the
+  // second line, statement block, then only the standard fields).
+  it('matches the reference SIWS parser exactly (Phantom-compatible)', () => {
+    const DOMAIN = '(?<domain>[^\\n]+?) wants you to sign in with your Solana account:\\n';
+    const ADDRESS = '(?<address>[^\\n]+)(?:\\n|$)';
+    const STATEMENT = '(?:\\n(?<statement>[\\S\\s]*?)(?:\\n|$))??';
+    const URI = '(?:\\nURI: (?<uri>[^\\n]+))?';
+    const VERSION = '(?:\\nVersion: (?<version>[^\\n]+))?';
+    const CHAIN_ID = '(?:\\nChain ID: (?<chainId>[^\\n]+))?';
+    const NONCE = '(?:\\nNonce: (?<nonce>[^\\n]+))?';
+    const ISSUED_AT = '(?:\\nIssued At: (?<issuedAt>[^\\n]+))?';
+    const EXPIRATION_TIME = '(?:\\nExpiration Time: (?<expirationTime>[^\\n]+))?';
+    const FIELDS = `${URI}${VERSION}${CHAIN_ID}${NONCE}${ISSUED_AT}${EXPIRATION_TIME}`;
+    const MESSAGE = new RegExp(`^${DOMAIN}${ADDRESS}${STATEMENT}${FIELDS}\\n*$`);
+
+    const ch = newChallenge(wallet, { origin: { domain: 'localhost:3000', uri: 'http://localhost:3000' } });
+    const parsed = MESSAGE.exec(ch.message)?.groups as {
+      domain: string;
+      address: string;
+      statement: string;
+      chainId: string;
+      nonce: string;
+      issuedAt: string;
+    };
+    expect(parsed).toBeTruthy();
+    expect(parsed.address).toBe(wallet);
+    expect(parsed.chainId).toBe(SIWS_CHAIN_ID);
+    expect(parsed.nonce).toBe(ch.nonce);
+    expect(parsed.issuedAt).toBe(ch.issuedAt);
+
+    // Same guarantee for the attest / bind-shaped message (statement variant).
+    const att = newChallenge(wallet, {
+      purpose: 'attest',
+      subject: 'bob',
+      repo: 'acme/widget',
+      skill: 'solana-anchor',
+      origin: { domain: 'localhost:3000', uri: 'http://localhost:3000' }
+    });
+    expect(MESSAGE.exec(att.message)).toBeTruthy();
+    expect(att.message).toContain('vouch for @bob');
   });
 
   it('round-trips challenge message parsing', () => {
@@ -86,11 +132,40 @@ describe('verifySiwsSignature', () => {
   });
 });
 
+describe('siwsOrigin (Phantom-compatible message origin)', () => {
+  it('derives domain + URI from the page origin header', () => {
+    const o = siwsOrigin({ origin: 'http://localhost:3000' });
+    expect(o).toEqual({ domain: 'localhost:3000', uri: 'http://localhost:3000' });
+    const dev = siwsOrigin({ origin: 'https://app.proofmesh.xyz' });
+    expect(dev).toEqual({ domain: 'app.proofmesh.xyz', uri: 'https://app.proofmesh.xyz' });
+  });
+
+  it('falls back to host/protocol when no origin header is present', () => {
+    expect(siwsOrigin({ protocol: 'http', hostname: 'dev.proofmesh.xyz' })).toEqual({
+      domain: 'dev.proofmesh.xyz',
+      uri: 'http://dev.proofmesh.xyz'
+    });
+  });
+
+  it('falls back to canonical proofmesh.xyz values when nothing is known', () => {
+    const o = siwsOrigin({});
+    expect(o).toEqual({ domain: 'proofmesh.xyz', uri: SIWS_URI });
+  });
+
+  it('embeds the page origin into issued challenge messages', () => {
+    const ch = newChallenge(wallet, { origin: { domain: 'localhost:3000', uri: 'http://localhost:3000' } });
+    expect(ch.domain).toBe('localhost:3000');
+    expect(ch.uri).toBe('http://localhost:3000');
+    expect(ch.message).toContain('localhost:3000 wants you to sign in');
+    expect(ch.message).toContain('URI: http://localhost:3000');
+  });
+});
+
 describe('challenge consumption semantics', () => {
   it('rejects an already-used nonce (single-use)', () => {
-    const ch = newChallenge(wallet);
-    const req = { wallet, message: ch.message, signature: sign(ch.message) };
-    expect(validateVerifyAgainstChallenge(req, ch)).toBeNull();
+      const ch = newChallenge(wallet);
+      const req = { wallet, message: ch.message, signature: sign(ch.message) };
+      expect(validateVerifyAgainstChallenge(req, ch)).toBeNull();
     // reuse of the same challenge instance after consume is indistinguishable from replay that
     // the store enforces by deleting the nonce before verification — covered by route test.
     expect(validateVerifyAgainstChallenge(req, ch)).toBeNull();
