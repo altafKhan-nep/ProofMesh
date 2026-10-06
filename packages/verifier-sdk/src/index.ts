@@ -13,6 +13,9 @@ import {
   LAYOUT,
   bytesToPubkey,
   toBase58,
+  ACCOUNT_DISCRIMINATOR,
+  PROGRAM_ID,
+  TOTAL_ACCOUNT_LEN,
   STATUS_ISSUED,
   STATUS_EXPIRED,
   STATUS_REVOKED,
@@ -29,6 +32,7 @@ export {
   PROGRAM_ID,
   SEED_PREFIX,
   CREDENTIAL_DISCRIMINATOR,
+  ACCOUNT_DISCRIMINATOR,
   TOTAL_ACCOUNT_LEN,
   LAYOUT,
   STATUS_ISSUED,
@@ -86,12 +90,27 @@ export function verifyConstraints(
   const reasons: string[] = [];
 
   if (attestation.status === 'REVOKED') reasons.push('Attestation is revoked.');
-  if (attestation.status === 'EXPIRED' || new Date(attestation.expiresAt) < new Date())
+  if (attestation.status === 'EXPIRED') reasons.push('Attestation is expired.');
+
+  // Fail CLOSED on an unparseable expiry. `new Date('garbage')` is Invalid
+  // Date, and `InvalidDate < validDate` is `NaN < x` === false, so the
+  // previous check silently treated corrupt dates as "not expired".
+  const expiry = Date.parse(attestation.expiresAt);
+  if (!Number.isFinite(expiry)) {
+    reasons.push('Attestation expiry is unparseable — treated as expired.');
+  } else if (expiry <= Date.now()) {
     reasons.push('Attestation is expired.');
-  if (opts.issuerAllowlist && opts.issuerAllowlist.length > 0) {
+  }
+
+  // An explicitly supplied allowlist is authoritative, INCLUDING the empty
+  // array. `length > 0` previously meant an empty allowlist (= "no issuers
+  // configured") silently trusted every issuer, including a wallet that had
+  // minted its own credential through a permissionless program.
+  if (opts.issuerAllowlist !== undefined) {
     if (!opts.issuerAllowlist.includes(attestation.issuerAddress))
       reasons.push(`Issuer ${attestation.issuerAddress} not in allowlist.`);
   }
+
   if (attestation.skillScore < (opts.minScore ?? 0))
     reasons.push(`Score ${attestation.skillScore} below minimum ${opts.minScore}.`);
   if (toConfidence(attestation.confidencePercent) < (opts.minConfidence ?? 0))
@@ -100,7 +119,10 @@ export function verifyConstraints(
         (opts.minConfidence ?? 0) * 100
       }%.`
     );
-  if (attestation.level < 1) reasons.push('Credential not at a valid level.');
+  // Range check rather than `< 1` alone: a corrupt account carrying level 200
+  // previously satisfied this test.
+  if (attestation.level < 1 || attestation.level > 3)
+    reasons.push(`Credential level ${attestation.level} is out of range (expected 1..3).`);
 
   return {
     valid: reasons.length === 0,
@@ -230,59 +252,119 @@ function readU32LE(bytes: Uint8Array, off: number): number {
   ) >>> 0;
 }
 
+/**
+ * Signed little-endian i64 as a Number, or NaN when it is not a sane unix time.
+ *
+ * `lib.rs` stores `i64`, but this previously read it UNSIGNED and never range
+ * checked. The program accepts any i64, so `expires_at = i64::MAX` minted
+ * cleanly and then made `new Date(...).toISOString()` throw `RangeError` out of
+ * every `verify()` call — permanently bricking the SDK for that (wallet, skill).
+ */
 function readI64LE(bytes: Uint8Array, off: number): number {
-  // Fits safely within Number until 2^53; unix seconds through 2050 are fine.
   const lo = readU32LE(bytes, off);
-  const hi = readU32LE(bytes, off + 4);
-  return lo + hi * 2 ** 32;
+  const hi = readU32LE(bytes, off + 4) | 0; // force signed high word
+  const v = hi * 2 ** 32 + lo;
+  if (!Number.isSafeInteger(v)) return Number.NaN;
+  return v;
 }
 
-function toFixedString(bytes: Uint8Array, off: number, len: number): string {
+/** Unix seconds -> ISO string, or null if out of the representable range. */
+function toIsoString(unixSeconds: number): string | null {
+  if (!Number.isFinite(unixSeconds) || Math.abs(unixSeconds) > 8_640_000_000_000_000)
+    return null;
+  const d = new Date(unixSeconds * 1000);
+  const s = Number.isNaN(d.getTime()) ? null : d.toISOString();
+  return s;
+}
+
+/**
+ * NUL-padded fixed-width field -> string.
+ *
+ * Rejects invalid UTF-8 instead of silently substituting U+FFFD, so a garbage
+ * account cannot masquerade as a (mangled) skill id.
+ */
+function toFixedString(bytes: Uint8Array, off: number, len: number): string | null {
   let end = off;
   const max = off + len;
   while (end < max && bytes[end] !== 0) end += 1;
-  return Buffer.from(bytes.slice(off, end)).toString('utf8');
+  if (end === off) return null; // empty required field
+  const buf = Buffer.from(bytes.slice(off, end));
+  const decoded = new TextDecoder('utf-8', { fatal: true });
+  try {
+    return decoded.decode(buf);
+  } catch {
+    return null;
+  }
 }
 
-/** Parse the fixed binary Credential account (post-discriminator). */
+/**
+ * Parse the fixed binary `Credential` account (post-discriminator).
+ *
+ * This VALIDATES; it does not merely deserialize. A record is rejected unless
+ * every field is in range, because a caller that only deserializes will happily
+ * surface a corrupt account as a credential:
+ *
+ *  - exact length (a longer account would otherwise have its tail ignored)
+ *  - status byte must be 0|1|2 (byte 255 previously read as `ISSUED`)
+ *  - level must be 1..=3 (byte 200 previously returned `valid: true`)
+ *  - timestamps must be sane unix seconds (i64::MAX previously threw RangeError)
+ *  - skill id must be non-empty and valid UTF-8
+ */
 export function parseCredentialLayout(
   data: Uint8Array,
   pda: string
 ): ParsedAttestation | null {
-  if (data.length < LAYOUT.structLen) return null;
+  // Exact length: >= allowed a 1000-zero-byte account to "parse" successfully.
+  if (data.length !== LAYOUT.structLen) return null;
   const off = LAYOUT;
-  const rawStatus = data[off.statusOffset] ?? 0;
-  const status: ParsedAttestation['status'] =
-    rawStatus === STATUS_EXPIRED
-      ? 'EXPIRED'
-      : rawStatus === STATUS_REVOKED
-        ? 'REVOKED'
-        : 'ISSUED';
-  const wallet = bytesToPubkey(data.slice(off.walletOffset, off.walletOffset + 32));
+
+  const rawStatus = data[off.statusOffset] ?? -1;
+  let status: ParsedAttestation['status'];
+  switch (rawStatus) {
+    case STATUS_ISSUED:
+      status = 'ISSUED';
+      break;
+    case STATUS_EXPIRED:
+      status = 'EXPIRED';
+      break;
+    case STATUS_REVOKED:
+      status = 'REVOKED';
+      break;
+    default:
+      return null; // unknown status byte — reject rather than assume ISSUED
+  }
+
+  const level = data[off.levelOffset] ?? 0;
+  if (level < 1 || level > 3) return null;
+
   const skillId = toFixedString(data, off.schemaOffset, 32);
+  if (!skillId) return null;
+
+  const issuedAt = toIsoString(readI64LE(data, off.issuedAtOffset));
+  const expiresAt = toIsoString(readI64LE(data, off.expiresAtOffset));
+  if (!issuedAt || !expiresAt) return null;
+
+  const analyzerVersion = toFixedString(data, off.analyzerOffset, 16);
+  if (!analyzerVersion) return null; // must not be a zeroed field
+
   const score = data[off.skillScoreOffset] ?? 0;
   const confidencePct = data[off.confidencePctOffset] ?? 0;
-  const level = (data[off.levelOffset] ?? 0) as 0 | 1 | 2 | 3;
-  const issuedAt = readI64LE(data, off.issuedAtOffset);
-  const expiresAt = readI64LE(data, off.expiresAtOffset);
-  const authority = bytesToPubkey(data.slice(off.authorityOffset, off.authorityOffset + 32));
-  const rootBytes = data.slice(off.evidenceRootOffset, off.evidenceRootOffset + 32);
-  const analyzer = toFixedString(data, off.analyzerOffset, 16);
+  if (score > 100 || confidencePct > 100) return null;
 
   return {
     attestationAddress: pda,
-    wallet,
+    wallet: bytesToPubkey(data.slice(off.walletOffset, off.walletOffset + 32)),
     skillId,
     skillLabel: skillId,
     skillScore: score,
     confidencePercent: confidencePct,
-    level,
-    issuerAddress: authority,
+    level: level as 1 | 2 | 3,
+    issuerAddress: bytesToPubkey(data.slice(off.authorityOffset, off.authorityOffset + 32)),
     schema: skillId,
-    analyzerVersion: analyzer || 'pow-analyzer',
-    evidenceRoot: toBase58(rootBytes),
-    issuedAt: new Date(issuedAt * 1000).toISOString(),
-    expiresAt: new Date(expiresAt * 1000).toISOString(),
+    analyzerVersion,
+    evidenceRoot: toBase58(data.slice(off.evidenceRootOffset, off.evidenceRootOffset + 32)),
+    issuedAt,
+    expiresAt,
     status,
   };
 }
@@ -302,12 +384,18 @@ async function rpcRead(args: {
       jsonrpc: '2.0',
       id: 1,
       method: 'getAccountInfo',
-      params: [address, { encoding: 'base64' }]
+      // `commitment: 'finalized'` — without it the node's default
+      // (often `processed`) can serve a pre-revocation snapshot, so a
+      // revoked credential still verified as valid for a slot or two. For a
+      // credential gating paid work that is the whole ballgame.
+      params: [address, { encoding: 'base64', commitment: 'finalized' }]
     })
   });
   if (!res.ok) throw new Error(`RPC HTTP ${res.status}`);
   const body = (await res.json()) as {
-    result?: { value?: { data?: [string, string] } | { data?: string } | null };
+    result?: {
+      value?: { data?: [string, string] | string; owner?: string } | null;
+    };
     error?: { message?: string };
   };
   if (body.error) throw new Error(`RPC ${body.error.message ?? 'error'}`);
@@ -325,12 +413,27 @@ async function rpcRead(args: {
   }
   if (!raw || raw.length === 0) return null;
 
-  // Skip the 8-byte Anchor account discriminator.
+  // Owner check: bytes at this address must have been written by the gate
+  // program. Without it, any account at these bytes is trusted.
+  if (value.owner !== PROGRAM_ID) return null;
+
+  // Account discriminator: sha256("account:Credential")[0..8]. The old code
+  // *skipped* these 8 bytes without checking them, so nothing identified the
+  // payload as a ProofMesh credential.
+  if (raw.length < TOTAL_ACCOUNT_LEN) return null;
+  for (let i = 0; i < 8; i++) {
+    if (raw[i] !== ACCOUNT_DISCRIMINATOR[i]) return null;
+  }
+
   const parsed = parseCredentialLayout(raw.subarray(8), address);
   if (!parsed) return null;
-  parsed.wallet = args.wallet;
-  parsed.skillId = args.skillId;
-  parsed.skillLabel = args.skillId;
+
+  // Identity cross-check. The old code OVERWROTE the parsed values with the
+  // caller's own arguments, so a mismatch could never be detected and
+  // `parsed.wallet === args.wallet` held by construction.
+  if (parsed.wallet !== args.wallet) return null;
+  if (parsed.skillId !== args.skillId) return null;
+
   return parsed;
 }
 

@@ -14,7 +14,16 @@
  */
 
 export const CREDENTIAL_DISCRIMINATOR = 8;
-export const PROGRAM_ID = '8p8PNd75RdygjcmnvQMGW3U8Fr9AwgR21fSGSL7VBvAj';
+
+/**
+ * Anchor account discriminator: sha256("account:Credential")[0..8].
+ *
+ * The reader used to SKIP these bytes without checking them, so nothing
+ * identified the payload as a ProofMesh credential.
+ */
+export const ACCOUNT_DISCRIMINATOR: readonly number[] = [145, 44, 68, 220, 67, 46, 100, 135];
+import { PROGRAM_ID } from '@proofmesh/shared-types';
+export { PROGRAM_ID };
 
 export const SCHEMA_LEN = 32;
 export const ANALYZER_LEN = 16;
@@ -65,6 +74,11 @@ export function fromBase58(input: string): Uint8Array {
   }
   const zeros = (input.match(/^1*/) ?? [''])[0]!.length;
   while (bytes.length > 1 && bytes[bytes.length - 1] === 0) bytes.pop();
+  // When the numeric value is zero every character is '1', so `bytes` is still
+  // the single sentinel byte. `length > 1` skipped its removal and it was then
+  // appended as an extra byte, making `fromBase58('111…1')` 33 bytes long —
+  // i.e. the System Program address itself failed to decode.
+  if (bytes.length === 1 && bytes[0] === 0) bytes.length = 0;
   const out = new Uint8Array(zeros + bytes.length);
   for (let i = 0; i < bytes.length; i++) out[zeros + i] = bytes[bytes.length - 1 - i]!;
   return out;
@@ -87,6 +101,10 @@ export function toBase58(bytes: Uint8Array): string {
   }
   let out = '';
   for (let i = 0; i < bytes.length && bytes[i] === 0; i++) out += '1';
+  // Mirror of the sentinel fix in `fromBase58`: when every byte is zero the
+  // digit accumulator is still the single sentinel, which would append one
+  // extra '1' past the leading-zero run (32 zeros -> 33 ones).
+  if (digits.length === 1 && digits[0] === 0) digits.length = 0;
   for (let i = digits.length - 1; i >= 0; i--) out += B58[digits[i]!]!;
   return out;
 }
