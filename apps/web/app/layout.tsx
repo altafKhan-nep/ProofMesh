@@ -1,5 +1,5 @@
 import type { Metadata } from 'next';
-import { WalletModal } from '../components/WalletModal';
+import { LazyWalletModal } from '../components/LazyWalletModal';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -27,7 +27,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       </head>
       <body className="bg-surface-base text-text-primary font-sans antialiased min-h-screen flex flex-col">
         {children}
-        <WalletModal />
+        <LazyWalletModal />
       </body>
     </html>
   );

@@ -56,11 +56,9 @@ export function useAuth() {
     };
     void sync();
     window.addEventListener('proofmesh:session', sync);
-    window.addEventListener('proofmesh:wallet', sync);
     return () => {
       alive = false;
       window.removeEventListener('proofmesh:session', sync);
-      window.removeEventListener('proofmesh:wallet', sync);
     };
   }, []);
 

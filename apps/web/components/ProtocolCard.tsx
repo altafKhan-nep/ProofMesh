@@ -1,10 +1,7 @@
 import Link from 'next/link';
-
-const PROGRAM_ID = 'ProofMeshIssuer111111111111111111111111111';
-
-function short(id: string, head = 6, tail = 4): string {
-  return `${id.slice(0, head)}…${id.slice(-tail)}`;
-}
+import { NETWORK_PROGRAM_ID } from '../lib/constants';
+import { shortAddress } from '../lib/format';
+import { LiveStat } from './LiveStat';
 
 /** Contextual protocol summary card — mirror of the Stitch "Deterministic proof" card. */
 export function ProtocolCard() {
@@ -17,7 +14,7 @@ export function ProtocolCard() {
             <span className="font-label-caps text-xs tracking-widest text-primary-container bg-badge-green-bg border border-badge-green-border px-2.5 py-1 rounded">
               DECENTRALIZED WORK ATTESTATION NODE // SOL-09
             </span>
-            <span className="font-label-code text-xs text-text-muted">BLOCK: #298,401,982 · EPOCH 624</span>
+            <span className="font-label-code text-xs text-text-muted">CLUSTER: DEVNET · CHAIN ID: 101</span>
           </div>
           <h1 className="font-headline-lg text-3xl sm:text-4xl lg:text-5xl font-semibold tracking-tight text-text-primary max-w-3xl mb-4">
             Deterministic proof of engineering contribution.
@@ -29,11 +26,13 @@ export function ProtocolCard() {
           <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4 border-t border-border-subtle font-label-code text-xs text-text-secondary">
             <div>
               <span className="text-text-muted block mb-1 uppercase tracking-wider font-label-caps text-[10px]">PROGRAM ID</span>
-              <span className="font-mono text-text-primary select-all">{short(PROGRAM_ID)}</span>
+              <span className="font-mono text-text-primary select-all">{shortAddress(NETWORK_PROGRAM_ID)}</span>
             </div>
             <div>
-              <span className="text-text-muted block mb-1 uppercase tracking-wider font-label-caps text-[10px]">TOTAL COMMIT PROOFS</span>
-              <span className="font-mono text-text-primary">18,429,910 SHA-256</span>
+              <span className="text-text-muted block mb-1 uppercase tracking-wider font-label-caps text-[10px]">CREDENTIALS ISSUED</span>
+              <span className="font-mono text-text-primary">
+                <LiveStat metric="credentialsIssued" /> ON-CHAIN
+              </span>
             </div>
             <div>
               <span className="text-text-muted block mb-1 uppercase tracking-wider font-label-caps text-[10px]">SETTLEMENT FINALITY</span>

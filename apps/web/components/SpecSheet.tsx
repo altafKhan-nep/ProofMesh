@@ -130,13 +130,13 @@ export function SpecSheet() {
         <div className="p-8 bg-paper-surface/60 border border-paper-border rounded-2xl flex justify-center">
           <DataCard
             title="Solana / Anchor SDK"
-            repo="github.com/alexander-vance"
-            score={94.1}
-            confidence={99.1}
-            metricA={{ label: 'Code Integrity (4,218 commits)', pct: 98 }}
-            metricB={{ label: 'Peer Review Dispersion', pct: 92 }}
-            walletTag="solana:ZQqgH...nyEeF"
-            href="/verify/ZQqgH8VYSs5HYWCvL25cGpafy3aSnUeWPmSrY2nyEeF/solana-anchor"
+            repo="github.com/<your-handle>"
+            score={90.4}
+            confidence={96.8}
+            metricA={{ label: 'Verified commits', pct: 96 }}
+            metricB={{ label: 'Peer Review Dispersion', pct: 88 }}
+            walletTag="solana:••••••••"
+            href="/verify"
           />
         </div>
       </section>

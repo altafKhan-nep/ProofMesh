@@ -1,11 +1,9 @@
 'use client';
 
 import { useSyncExternalStore } from 'react';
-import { ed25519 } from '@noble/curves/ed25519.js';
-import { Keypair, PublicKey } from '@solana/web3.js';
+import { DEMO_WALLET_ENABLED } from './demo-signer';
 
 const STORAGE_KEY = 'proofmesh.wallet';
-const DEMO_KEY = 'proofmesh-demo-admin:v1';
 
 /** The slice of the injected-provider API we rely on (Phantom / Backpack / Solflare). */
 export interface SolanaProvider {
@@ -65,6 +63,20 @@ function hydrate(): WalletState {
 let state: WalletState = hydrate();
 const listeners = new Set<() => void>();
 
+/**
+ * SSR/hydration-safe snapshot: wallet state only exists client-side (injected
+ * providers + localStorage), so the server and the first client render must
+ * agree on the *empty* state. After hydration we re-read `getSnapshot` and
+ * re-render with the real wallet if one is connected.
+ */
+const SERVER_SNAPSHOT: WalletState = {
+  address: null,
+  walletId: null,
+  connecting: false,
+  error: null,
+  modalOpen: false
+};
+
 function setState(patch: Partial<WalletState>): void {
   state = { ...state, ...patch };
   for (const l of listeners) l();
@@ -76,34 +88,20 @@ function subscribe(listener: () => void): () => void {
 }
 
 const getSnapshot = (): WalletState => state;
+const getServerSnapshot = (): WalletState => SERVER_SNAPSHOT;
 
 // ---------------------------------------------------------------------------
 
-/** Detected browser wallets, in preference order, plus the always-available demo key. */
+/** Detected browser wallets, in preference order. Demo key is opt-in (env). */
 export function detectWallets(): WalletOption[] {
   if (typeof window === 'undefined') return [];
   const found: WalletOption[] = [];
   const phantom = window.phantom?.solana ?? (window.solana?.isPhantom ? window.solana : undefined);
   if (phantom) found.push({ id: 'phantom', name: 'Phantom', installed: true, provider: phantom });
   if (window.backpack) found.push({ id: 'backpack', name: 'Backpack', installed: true, provider: window.backpack });
-  if (window.solflare && window.solflare !== phantom)
-    found.push({ id: 'solflare', name: 'Solflare', installed: true, provider: window.solflare });
-  found.push({ id: 'demo', name: 'Demo key (no extension)', installed: true });
+  if (window.solflare && window.solflare !== phantom) found.push({ id: 'solflare', name: 'Solflare', installed: true, provider: window.solflare });
+  if (DEMO_WALLET_ENABLED) found.push({ id: 'demo', name: 'Demo key (no extension)', installed: true });
   return found;
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-  return btoa(binary);
-}
-
-/** Deterministic local signer so the protocol is fully testable without an extension. */
-export async function demoKeypair(): Promise<Keypair> {
-  const seed = new Uint8Array(
-    await window.crypto.subtle.digest('SHA-256', new TextEncoder().encode(DEMO_KEY))
-  );
-  return Keypair.fromSeed(seed);
 }
 
 function persist(address: string | null, walletId: string | null): void {
@@ -124,8 +122,8 @@ export async function connectWallet(id: string): Promise<void> {
   setState({ error: null, connecting: true, modalOpen: false });
   try {
     if (id === 'demo') {
-      const kp = await demoKeypair();
-      const address = kp.publicKey.toBase58();
+      const { demoKeypair } = await import('./demo-signer');
+      const address = (await demoKeypair()).publicKey.toBase58();
       persist(address, 'demo');
       setState({ address, walletId: 'demo' });
       return;
@@ -135,7 +133,9 @@ export async function connectWallet(id: string): Promise<void> {
     await option.provider.connect();
     const pub = option.provider.publicKey;
     if (!pub) throw new Error('Wallet connected without exposing a public key');
-    const address = (pub as { toBase58?(): string }).toBase58?.() ?? new PublicKey(pub.toBytes()).toBase58();
+    const alreadyBase58 = (pub as { toBase58?(): string }).toBase58?.();
+    const { PublicKey } = await import('@solana/web3.js');
+    const address = alreadyBase58 ?? new PublicKey(pub.toBytes()).toBase58();
     persist(address, id);
     setState({ address, walletId: id });
   } catch (err) {
@@ -163,28 +163,42 @@ export async function disconnectWallet(): Promise<void> {
 export async function signWithWallet(message: string): Promise<string> {
   const bytes = new TextEncoder().encode(message);
   if (state.walletId === 'demo') {
-    const kp = await demoKeypair();
-    return bytesToBase64(ed25519.sign(bytes, kp.secretKey.slice(0, 32)));
+    const { signDemo } = await import('./demo-signer');
+    return signDemo(message);
   }
   const option = state.walletId ? detectWallets().find((w) => w.id === state.walletId) : undefined;
   if (!option?.provider) throw new Error('No wallet connected');
   const res = await option.provider.signMessage(bytes, 'utf8');
   const sig = res instanceof Uint8Array ? res : res.signature;
-  return bytesToBase64(sig);
+  let binary = '';
+  for (let i = 0; i < sig.length; i++) binary += String.fromCharCode(sig[i]);
+  return btoa(binary);
+}
+
+// Stable action identities: module-level functions so subscribers do not get a
+// fresh closure on every state change (only the values re-render).
+function openWalletModal(): void {
+  setState({ modalOpen: true, error: null });
+}
+function closeWalletModal(): void {
+  setState({ modalOpen: false });
+}
+function clearWalletError(): void {
+  setState({ error: null });
 }
 
 /** Shared wallet state + actions for every component. */
 export function useWallet() {
-  const s = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  const s = useSyncExternalStore(subscribe, getSnapshot, getServerSnapshot);
   return {
     wallet: s.address,
     walletId: s.walletId,
     connecting: s.connecting,
     error: s.error,
     modalOpen: s.modalOpen,
-    openModal: () => setState({ modalOpen: true, error: null }),
-    closeModal: () => setState({ modalOpen: false }),
-    clearError: () => setState({ error: null }),
+    openModal: openWalletModal,
+    closeModal: closeWalletModal,
+    clearError: clearWalletError,
     connect: connectWallet,
     disconnect: disconnectWallet,
     signMessage: signWithWallet

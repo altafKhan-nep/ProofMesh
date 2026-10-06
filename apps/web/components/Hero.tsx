@@ -1,10 +1,11 @@
 import Link from 'next/link';
 import { EvidenceGraph } from './EvidenceGraph';
+import { LiveStat } from './LiveStat';
 
-const MICRO_STATS = [
-  { label: 'Attested Devs', value: '18,429' },
-  { label: 'Entropy Check', value: '99.8%' },
-  { label: 'Avg Execution', value: '3.2 min', accent: true }
+const MICRO_STATS: Array<{ label: string; key: 'developers' | 'avgConfidencePct' | 'jobsCompleted'; suffix?: string }> = [
+  { label: 'Attested Devs', key: 'developers' },
+  { label: 'Median Confidence', key: 'avgConfidencePct', suffix: '%' },
+  { label: 'Pipe Executions', key: 'jobsCompleted' }
 ];
 
 export function Hero() {
@@ -70,8 +71,10 @@ export function Hero() {
               {MICRO_STATS.map((s) => (
                 <div key={s.label} className="bg-surface-card rounded-lg p-2 shadow-sm">
                   <div className="font-label-caps text-[10px] text-text-muted uppercase">{s.label}</div>
-                  <div className={`font-headline-sm text-[18px] text-text-primary font-medium mt-0.5 ${s.accent ? 'text-primary-container' : ''}`}>
-                    {s.value}
+                  <div
+                    className={`font-headline-sm text-[18px] text-primary-container font-medium mt-0.5 ${s.key === 'avgConfidencePct' ? 'text-primary-container' : 'text-text-primary'}`}
+                  >
+                    <LiveStat metric={s.key} suffix={s.suffix} />
                   </div>
                 </div>
               ))}

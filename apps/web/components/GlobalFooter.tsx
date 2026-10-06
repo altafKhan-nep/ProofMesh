@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { LiveNetworkBadge } from './LiveNetworkBadge';
 
 const solutions = ['GitHub Commit Attestation', 'Peer Review Consensus', 'Enterprise Verification', 'Maintainer Grants', 'ZK Reputation Proofs'];
 const company = ['Protocol Overview', 'Security Audits & CVEs', 'Research & Whitepaper', 'Careers', 'Press & Media Kit'];
@@ -84,7 +85,7 @@ export function GlobalFooter() {
               SOLANA CLUSTER: DEVNET
             </span>
             <span className="text-border-strong">/</span>
-            <span className="text-text-muted font-label-mono-tag">NODE LATENCY: 22MS</span>
+            <LiveNetworkBadge />
           </div>
         </div>
       </div>
@@ -114,7 +115,9 @@ export function GlobalFooter() {
                   </span>
                   <span className="font-medium">Solana Cluster: Devnet</span>
                   <span className="text-text-muted">|</span>
-                  <span className="text-[11px] font-label-mono-tag tracking-wider text-text-secondary uppercase">Epoch 624 Active</span>
+                  <span className="text-[11px] font-label-mono-tag tracking-wider text-text-secondary uppercase">
+                    Live orchestration
+                  </span>
                 </Link>
               </div>
             </div>
@@ -175,7 +178,7 @@ export function GlobalFooter() {
               </a>
             </div>
             <div className="hidden lg:inline-flex items-center px-2 py-1 rounded bg-surface-container border border-border-subtle font-label-mono-tag text-[10px] text-text-secondary tracking-widest uppercase">
-              SHA-256 SPEC V2.4.1 // ATTEST-NODE-SOL-OK
+              SHA-256 SPEC V2.4.1
             </div>
           </div>
         </div>

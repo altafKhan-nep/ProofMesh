@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { detectWallets, useWallet, type WalletOption } from '../lib/wallet';
 
 const INSTALL_URLS: Record<string, string> = {
@@ -30,13 +30,19 @@ function WalletMark({ id }: { id: string }) {
 export function WalletModal() {
   const { modalOpen, closeModal, connect, connecting, error, clearError } = useWallet();
   const [options, setOptions] = useState<WalletOption[]>([]);
+  const hasDetected = useRef<boolean>(false);
 
+  // NOTE: detectWallets() is safe for SSR - returns [] on server, real wallets on client.
+  // Use a ref to avoid re-triggering on every re-render — the effect runs once
+  // when the modal opens, then stops. This prevents the "Maximum update depth exceeded"
+  // error caused by setState inside a useEffect with modalOpen as dependency.
   useEffect(() => {
-    if (modalOpen) {
+    if (modalOpen && !hasDetected.current) {
       setOptions(detectWallets());
+      hasDetected.current = true;
       clearError();
     }
-  }, [modalOpen, clearError]);
+  }, [modalOpen]);
 
   useEffect(() => {
     if (!modalOpen) return;

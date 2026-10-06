@@ -25,7 +25,7 @@
   --color-surface-dim: #dadad8;
   --color-text-primary: #111413;
   --color-text-secondary: #484e4b;
-  --color-text-muted: #7a827e;
+  --color-text-muted: #6b736f;
   --color-border-subtle: #e5e4de;
   --color-border-strong: #cdccc4;
   --color-outline: #707971;
@@ -48,6 +48,11 @@
   --color-badge-green-border: #c2e5d1;
   --color-inverse-surface: #2f3130;
   --color-inverse-on-surface: #f1f1ef;
+
+  /* Error states (muted terracotta for the warm-paper palette) */
+  --color-error: #9c3a2f;
+  --color-error-container: #fbeae6;
+  --color-on-error-container: #5a1f18;
 
   /* Pipeline-section aliases */
   --color-paper: #faf9f6;
@@ -130,6 +135,11 @@
 ::selection {
   background-color: #ebf4ee;
   color: #1d5d3a;
+}
+
+:focus-visible {
+  outline: 2px solid #1d5d3a;
+  outline-offset: 2px;
 }
 
 body {

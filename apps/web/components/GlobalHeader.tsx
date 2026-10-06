@@ -4,16 +4,13 @@ import Link from 'next/link';
 import { useEffect, useState } from 'react';
 import { useWallet } from '../lib/wallet';
 import { signInWallet, useAuth } from '../lib/auth';
+import { shortAddress } from '../lib/format';
 
 const links = [
   { href: '/verify', label: 'Verification Protocol' },
   { href: '/sponsors', label: 'Registry' },
   { href: '/dev/components', label: 'Documentation' }
 ];
-
-function shortWallet(w: string): string {
-  return w.length > 16 ? `${w.slice(0, 6)}…${w.slice(-4)}` : w;
-}
 
 export function GlobalHeader() {
   const { wallet, walletId, openModal, disconnect, signMessage, error: walletError } = useWallet();
@@ -103,7 +100,7 @@ export function GlobalHeader() {
                   <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-verified-dot opacity-75"></span>
                   <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-verified-dot"></span>
                 </span>
-                <span className="select-all">{shortWallet(wallet)}</span>
+                <span className="select-all">{shortAddress(wallet)}</span>
                 <span className="text-badge-green-text/70 uppercase text-[9px]">{walletId}</span>
               </button>
 

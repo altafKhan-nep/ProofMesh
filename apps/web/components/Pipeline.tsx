@@ -1,7 +1,14 @@
-import { FIVE_STAGES } from '../lib/constants';
+import { PIPELINE_META } from '../lib/constants';
+import { PIPELINE_STAGES } from '@proofmesh/shared-types';
 
-/** Landing "five deterministic stages" — faithful mirror of the Stitch pipeline section. */
+/** Landing pipeline section — the real 7-stage deterministic pipeline. */
 export function Pipeline() {
+  const stages = PIPELINE_STAGES.map((stage, i) => ({
+    n: String(i + 1).padStart(2, '0'),
+    label: PIPELINE_META[stage].label,
+    tag: PIPELINE_META[stage].tag,
+    blurb: PIPELINE_META[stage].blurb
+  }));
   return (
     <section id="pipeline" className="bg-paper text-ink grid-bg py-20 px-0 sm:px-8">
       <main className="max-w-5xl mx-auto w-full">
@@ -11,12 +18,12 @@ export function Pipeline() {
             <span className="font-mono text-xs text-forest tracking-wider uppercase font-medium">[ EVIDENCE PIPELINE SPECIFICATION ]</span>
           </div>
           <h2 className="text-3xl md:text-4xl font-semibold tracking-tight text-ink">
-            Cryptographic verification in five deterministic stages.
+            Cryptographic verification in seven deterministic stages.
           </h2>
         </div>
 
         <div className="border-t border-border-subtle divide-y divide-border-subtle">
-          {FIVE_STAGES.map((s) => (
+          {stages.map((s) => (
             <div
               key={s.n}
               className="py-10 md:py-12 flex flex-col md:flex-row md:items-baseline gap-6 md:gap-16 group transition-colors duration-200"
@@ -38,7 +45,7 @@ export function Pipeline() {
         <div className="mt-16 pt-6 border-t border-border-subtle flex items-center justify-between font-mono text-xs text-ink-light">
           <div className="flex items-center gap-2">
             <span className="inline-block w-1.5 h-1.5 rounded-full bg-forest"></span>
-            <span>PROOF-SPEC // STAGES 01-05 VERIFIED</span>
+            <span>PROOF-SPEC // STAGES 01-07 VERIFIED</span>
           </div>
           <span>DETERMINISTIC CONSENSUS ENGINE</span>
         </div>

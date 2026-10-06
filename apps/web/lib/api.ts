@@ -9,6 +9,7 @@ import type {
   EvidenceItem,
   EvidenceReport,
   Listing,
+  NetworkStats,
   RepoSnapshot,
   ScoreSnapshot,
   ActionProofChallenge,
@@ -71,13 +72,18 @@ async function get<T>(path: string, opts?: { token?: string }): Promise<T> {
   );
 }
 
-async function post<T>(path: string, body: unknown, opts?: { token?: string }): Promise<T> {
+async function post<T>(
+  path: string,
+  body: unknown,
+  opts?: { token?: string; signal?: AbortSignal }
+): Promise<T> {
   return json<T>(
     await fetch(`${API_BASE}${path}`, {
       method: 'POST',
       credentials: 'include',
       headers: { 'content-type': 'application/json', ...authHeaders(opts) },
-      body: JSON.stringify(body)
+      body: JSON.stringify(body),
+      signal: opts?.signal
     })
   );
 }
@@ -94,12 +100,13 @@ async function del<T>(path: string, token?: string): Promise<T> {
 
 export const api = {
   health: () => get<{ status: string; store: { developers: number; jobs: number }; deterministicOnly: boolean }>('/health'),
+  stats: () => get<NetworkStats>('/api/stats'),
   developers: () => get<Developer[]>('/api/developers'),
   developer: (handle: string) => get<Developer>(`/api/developers/${handle}`),
   evidence: (handle: string) => get<EvidenceReport>(`/api/evidence/${handle}`),
   listings: () => get<Listing[]>('/api/listings'),
-  search: (q: { skills?: string[]; minScore?: number; minLevel?: number }) =>
-    post<CandidateDeveloper[]>('/api/search', q),
+  search: (q: { skills?: string[]; minScore?: number; minLevel?: number; limit?: number }, signal?: AbortSignal) =>
+    post<CandidateDeveloper[]>('/api/search', q, { signal }),
   analyze: (body: AnalyzeRequest, token?: string) => post<{ job: AnalysisJob }>('/api/analyze', body, { token }),
   job: (id: string) => get<{ job: AnalysisJob; score: ScoreSnapshot | null }>(`/api/analyze/${id}`),
   post: <T>(path: string, body: unknown = {}, opts?: { token?: string }) => post<T>(path, body, opts),

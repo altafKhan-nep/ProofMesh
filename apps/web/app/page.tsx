@@ -1,7 +1,7 @@
 import { GlobalHeader } from '../components/GlobalHeader';
 import { GlobalFooter } from '../components/GlobalFooter';
 import { Hero } from '../components/Hero';
-import { LiveReport } from '../components/LiveReport';
+import { LazyLiveReport } from '../components/LazyLiveReport';
 import { Pipeline } from '../components/Pipeline';
 import { ProtocolCard } from '../components/ProtocolCard';
 
@@ -12,7 +12,7 @@ export default function LandingPage() {
       <main className="flex-1">
         <Hero />
         <Pipeline />
-        <LiveReport />
+        <LazyLiveReport />
         <ProtocolCard />
       </main>
       <GlobalFooter />

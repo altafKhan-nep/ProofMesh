@@ -1,23 +1,9 @@
 'use client';
 
 import type { ReactNode } from 'react';
-import type { DimensionId } from '@proofmesh/shared-types';
 import type { DashboardData } from '../lib/api';
-import { barsFromEvidence } from '../lib/constants';
-
-const DIM_LABELS: Record<DimensionId, string> = {
-  architecture: '01. Code Architecture & Modularity',
-  quality: '02. Peer Review Acceptance & Consensus',
-  consistency: '03. Cross-Repository Impact',
-  security: '04. Vulnerability & Security Clearance',
-  testing: '05. Maintainer Retention & Stability'
-};
-
-const DIM_ORDER: DimensionId[] = ['architecture', 'quality', 'consistency', 'security', 'testing'];
-
-function shortId(id: string, head = 5, tail = 4): string {
-  return id.length <= head + tail + 3 ? id : `${id.slice(0, head)}…${id.slice(-tail)}`;
-}
+import { barsFromEvidence, DIM_LABELS, DIM_ORDER } from '../lib/constants';
+import { shortAddress } from '../lib/format';
 
 function TimeAgo(iso: string): string {
   const ms = Date.now() - new Date(iso).getTime();
@@ -137,7 +123,7 @@ export function ReportDashboard({ data }: { data: DashboardData | null }) {
                 </div>
               )}
               <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-surface-card border border-border-subtle text-text-secondary hover:text-text-primary transition-colors">
-                <span>TX: {shortId(data.attestationAddress)}</span>
+                <span>TX: {shortAddress(data.attestationAddress)}</span>
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 0 0-2 2v10a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4M14 4h6m0 0v6m0-6L10 14" />
                 </svg>
@@ -244,11 +230,11 @@ export function ReportDashboard({ data }: { data: DashboardData | null }) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
               </svg>
               <span>
-                Solana Ledger Attestation: Program ID: <span className="text-text-secondary">{shortId(data.issuerAddress, 8, 4)}</span> · State Verified
+                Solana Ledger Attestation: Program ID: <span className="text-text-secondary">{shortAddress(data.issuerAddress, 8, 4)}</span> · State Verified
               </span>
             </div>
             <div className="truncate max-w-full">
-              <span className="text-text-secondary">SHA-256 Merkle Root:</span> {shortId(data.evidenceRoot, 16, 8)}
+              <span className="text-text-secondary">SHA-256 Merkle Root:</span> {shortAddress(data.evidenceRoot, 16, 8)}
             </div>
           </div>
         </div>

@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import type { AuditEvent, CandidateDeveloper, Listing } from '@proofmesh/shared-types';
+import type { AuditEvent, CandidateDeveloper, Listing, CredentialLevel } from '@proofmesh/shared-types';
+import { LEVEL_INFO } from '@proofmesh/shared-types';
 import { api } from '../../lib/api';
 import { useAuth } from '../../lib/auth';
 import { useWallet } from '../../lib/wallet';
@@ -10,15 +11,28 @@ import { SKILL_OPTIONS, skillLabel } from '../../lib/constants';
 import { GlobalHeader } from '../../components/GlobalHeader';
 import { GlobalFooter } from '../../components/GlobalFooter';
 
+/**
+ * A credential level arrives from the API as an untrusted number. Clamp to the
+ * known range so a corrupt row renders 'Not Yet' instead of reading
+ * `LEVEL_INFO[undefined]` (or crashing).
+ */
+function clampLevel(level?: number): CredentialLevel {
+  if (!Number.isFinite(level)) return 0;
+  return (Math.min(3, Math.max(0, Math.trunc(level as number))) as CredentialLevel);
+}
+
 function LevelChip({ level }: { level?: number }) {
   if (!level) return <span className="font-label-mono-tag text-[10px] px-1.5 py-0.5 rounded bg-surface-container border border-border-strong text-text-muted">NOT YET</span>;
-  const labels: Record<number, { t: string; c: string }> = {
-    1: { t: 'L1 · Verified', c: 'text-badge-green-text bg-badge-green-bg border-badge-green-border' },
-    2: { t: 'L2 · Strong', c: 'text-badge-green-text bg-badge-green-bg border-badge-green-border' },
-    3: { t: 'L3 · Expert', c: 'text-text-primary bg-primary-fixed border-primary-container/40' }
-  };
-  const l = labels[level];
-  return <span className={`font-label-mono-tag text-[10px] px-1.5 py-0.5 rounded border ${l.c}`}>{l.t}</span>;
+  const classes = [
+    'text-badge-green-text bg-badge-green-bg border-badge-green-border',
+    'text-badge-green-text bg-badge-green-bg border-badge-green-border',
+    'text-text-primary bg-primary-fixed border-primary-container/40'
+  ];
+  return (
+    <span className={`font-label-mono-tag text-[10px] px-1.5 py-0.5 rounded border ${classes[clampLevel(level) - 1] ?? classes[0]}`}>
+      L{level} · {LEVEL_INFO[clampLevel(level)]?.label ?? ''}
+    </span>
+  );
 }
 
 export default function SponsorsPage() {
@@ -50,22 +64,27 @@ export default function SponsorsPage() {
       .catch(() => setAudit([]));
   }, [isAdmin, session?.expiresAt]);
 
-  const search = useCallback(async () => {
-    setSearching(true);
-    setNotice(null);
-    try {
-      const res = await api.search({ skills: [skill], minScore });
-      setResults(res);
-    } catch (e) {
-      setNotice({ kind: 'err', text: e instanceof Error ? e.message : String(e) });
-    } finally {
-      setSearching(false);
-    }
-  }, [skill, minScore]);
-
+  // Debounce + cancel: dragging the min-score slider must not fire one HTTP
+  // request per pixel, and a stale slow response must never overwrite a newer one.
   useEffect(() => {
-    void search();
-  }, [search]);
+    const controller = new AbortController();
+    const timer = setTimeout(() => {
+      setSearching(true);
+      setNotice(null);
+      api
+        .search({ skills: [skill], minScore }, controller.signal)
+        .then((res) => !controller.signal.aborted && setResults(res))
+        .catch((e) => {
+          if (controller.signal.aborted) return;
+          setNotice({ kind: 'err', text: e instanceof Error ? e.message : String(e) });
+        })
+        .finally(() => !controller.signal.aborted && setSearching(false));
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [skill, minScore]);
 
   const invite = async (handle: string) => {
     if (!selectedListing) {
@@ -219,7 +238,7 @@ export default function SponsorsPage() {
                       <button
                         onClick={() => genLink(l.id)}
                         disabled={!isAdmin}
-                        className="shrink-0 font-label-mono-tag text-[10px] px-2 py-1 rounded bg-badge-green-bg border border-badge-green-border text-badge-green-text hover:bg-badge-green-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="shrink-0 font-label-mono-tag text-[10px] px-3 py-2 min-h-[44px] inline-flex items-center rounded bg-badge-green-bg border border-badge-green-border text-badge-green-text hover:bg-badge-green-border transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         title="Generate verified application link (admin)"
                       >
                         VERIFIED LINK
@@ -229,7 +248,7 @@ export default function SponsorsPage() {
                           if (confirm('Remove this listing?')) void deleteListing(l.id);
                         }}
                         disabled={!isAdmin}
-                        className="shrink-0 font-label-mono-tag text-[10px] px-2 py-1 rounded bg-error-container/40 border border-error/30 text-error hover:bg-error/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                        className="shrink-0 font-label-mono-tag text-[10px] px-3 py-2 min-h-[44px] inline-flex items-center rounded bg-error-container/40 border border-error/30 text-error hover:bg-error/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                         title="Remove listing (admin)"
                       >
                         REMOVE

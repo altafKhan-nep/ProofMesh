@@ -1,9 +1,9 @@
-import { SKILLS } from '@proofmesh/shared-types';
-import type { PipelineStage, SkillId } from '@proofmesh/shared-types';
+import { PROGRAM_ID, SKILLS } from '@proofmesh/shared-types';
+import type { DimensionId, PipelineStage, SkillId } from '@proofmesh/shared-types';
 
 export const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:4000';
 
-export const ISSUER_LABEL = 'PROOF-SPEC V2.4.1 // ATTEST-NODE-SOL-OK';
+export const NETWORK_PROGRAM_ID = PROGRAM_ID;
 
 export const SKILL_OPTIONS = Object.values(SKILLS);
 
@@ -11,41 +11,26 @@ export function skillLabel(id: string): string {
   return SKILLS[id as SkillId]?.label ?? id;
 }
 
-/** Landing "five deterministic stages" — mirrors the Stitch pipeline section. */
-export const FIVE_STAGES = [
-  {
-    n: '01',
-    label: 'Ingestion',
-    tag: 'STAGE_READ_ONLY',
-    blurb: 'Full commit, pull request, and review history pulled read-only from GitHub.'
-  },
-  {
-    n: '02',
-    label: 'Static analysis',
-    tag: 'SANDBOX_AUDIT',
-    blurb: 'Sandboxed, automated checks on code quality and security.'
-  },
-  {
-    n: '03',
-    label: 'Outcome analysis',
-    tag: 'ENTROPY_INDEX',
-    blurb: 'Whether contributions survive contact with other maintainers.'
-  },
-  {
-    n: '04',
-    label: 'Verified credential',
-    tag: 'SOLANA_ANCHOR',
-    blurb: 'The score and confidence are issued on Solana, tamper-proof.'
-  },
-  {
-    n: '05',
-    label: 'Built for scale',
-    tag: 'N_PARALLEL',
-    blurb: 'Works the same for one developer or thousands.'
-  }
-] as const;
+/** Canonical dimension presentation order + labels for evidence bars. */
+export const DIM_ORDER: DimensionId[] = [
+  'architecture',
+  'quality',
+  'consistency',
+  'security',
+  'testing',
+  'traction'
+];
 
-/** Live 7-stage pipeline (matches apps/api pipeline.ts + PIPELINE_STAGES). */
+export const DIM_LABELS: Record<DimensionId, string> = {
+  architecture: '01. Code Architecture & Modularity',
+  quality: '02. Peer Review Acceptance & Consensus',
+  consistency: '03. Cross-Repository Impact',
+  security: '04. Vulnerability & Security Clearance',
+  testing: '05. Maintainer Retention & Stability',
+  traction: '06. Star-Backed Reach'
+};
+
+/** Live 7-stage pipeline (matches shared PIPELINE_STAGES + apps/api pipeline.ts). */
 export const PIPELINE_META: Record<PipelineStage, { label: string; tag: string; blurb: string }> = {
   INGESTION: {
     label: 'Ingestion',
@@ -84,15 +69,10 @@ export const PIPELINE_META: Record<PipelineStage, { label: string; tag: string; 
   }
 };
 
-export const STAGE_ORDER = [
-  'INGESTION',
-  'STATIC_ANALYSIS',
-  'OUTCOME_ANALYSIS',
-  'SCORING',
-  'REVIEWER_PASS',
-  'SKEPTIC_PASS',
-  'CREDENTIAL_CHECK'
-] as PipelineStage[];
+/**
+ * The live 7-stage order is canonical in shared-types (`PIPELINE_STAGES`);
+ * the verify flow imports it directly.
+ */
 
 /** Derive honest "dimensional competency" bars from real evidence (fallback). */
 export function barsFromEvidence(
@@ -118,10 +98,10 @@ export function barsFromEvidence(
   const stable = clamp(Math.min(1, (0.4 * months + 0.3 * tests + 0.3) / 6));
 
   return [
-    { label: '01. Code Architecture & Modularity', pct: arch },
-    { label: '02. Peer Review Acceptance & Consensus', pct: peer },
-    { label: '03. Cross-Repository Impact', pct: cross },
-    { label: '04. Vulnerability & Security Clearance', pct: sec },
-    { label: '05. Maintainer Retention & Stability', pct: stable }
+    { label: DIM_LABELS.architecture, pct: arch },
+    { label: DIM_LABELS.quality, pct: peer },
+    { label: DIM_LABELS.consistency, pct: cross },
+    { label: DIM_LABELS.security, pct: sec },
+    { label: DIM_LABELS.testing, pct: stable }
   ];
 }
