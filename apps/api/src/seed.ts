@@ -5,6 +5,7 @@
 
 import { Store } from './store.js';
 import { runAnalysis } from './pipeline.js';
+import { SEEDED_RUNS } from './hydrate.js';
 import type { SseEvent } from '@proofmesh/shared-types';
 
 const noop = (_e: SseEvent) => undefined;
@@ -12,11 +13,7 @@ const noop = (_e: SseEvent) => undefined;
 async function main(): Promise<void> {
   const store = new Store();
 
-  for (const [handle, skill] of [
-    ['alexander-vance', 'solana-anchor'],
-    ['maria-chen', 'typescript'],
-    ['devraj-patel', 'solana-anchor']
-  ] as const) {
+  for (const [handle, skill] of SEEDED_RUNS) {
     const dev = store.findDeveloper(handle);
     if (!dev) continue;
     const job = store.createJob({

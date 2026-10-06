@@ -112,7 +112,7 @@ const LANG_CANON: Record<string, string | null> = {
   php: 'php',
   ruby: 'ruby',
   vue: 'vue',
-  solidity: 'solana-anchor' // legacy passthrough guard; solana-anchor is a skill, not a GH language
+  solidity: 'solidity'
 };
 
 function canonLanguage(lang: string | null): string | null {
@@ -207,12 +207,17 @@ export async function ingestGitHub(
   username: string,
   opts: { maxDetailRepos?: number; skipProfile?: boolean } = {}
 ): Promise<IngestedDeveloper> {
-  const maxDetail = opts.maxDetailRepos ?? 6;
-  const key = `github-sync:${username.toLowerCase()}:detail${maxDetail}:${
-    opts.skipProfile ? 'noprofile' : 'profile'
-  }`;
-  const cached = (store.metadata ?? new Map()).get(key);
-  if (cached) return JSON.parse(cached) as IngestedDeveloper;
+  const maxDetail = opts.maxDetailRepos ?? CANONICAL_DETAIL_REPOS;
+  // ONE cache entry per account.
+  //
+  // The key used to embed `detail${maxDetail}`, and callers disagreed:
+  // `/api/bind` asked for 1 repo while `/api/analyze` asked for 4. That produced
+  // two independent ingestion results for the same person, and because ingest
+  // overwrites `store.repos`/`store.evidence` on each run, the *order* of calls
+  // decided how much evidence the scoring engine could see.
+  const key = `github-sync:${username.toLowerCase()}`;
+  const cached = readCache(store, key);
+  if (cached) return cached;
 
   const profile = opts.skipProfile
     ? ({ login: username, avatar_url: null, created_at: '' } satisfies GhUser)
@@ -438,10 +443,38 @@ export async function ingestGitHub(
   };
 
   const result: IngestedDeveloper = { developer: dev, repos, evidence, sources: [] };
-  const meta = store.metadata ?? new Map<string, string>();
-  meta.set(key, JSON.stringify(result));
-  store.metadata = meta;
+  store.metadata.set(key, JSON.stringify({ at: Date.now(), data: result }));
   return result;
+}
+
+/** Repo depth every caller must use, so ingestion is not call-order dependent. */
+export const CANONICAL_DETAIL_REPOS = 4;
+
+/**
+ * Cache entries carry a timestamp and expire.
+ *
+ * The old cache had no TTL at all, so an account's evidence snapshot was frozen
+ * permanently: a developer who started shipping tests would keep scoring as if
+ * they never had, forever.
+ */
+const CACHE_TTL_MS = Number(process.env.GITHUB_CACHE_TTL_MS ?? 6 * 60 * 60_000);
+
+function readCache(store: Store, key: string): IngestedDeveloper | null {
+  const raw = store.metadata.get(key);
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { at?: number; data?: IngestedDeveloper } | IngestedDeveloper;
+    // Back-compat: entries written before the TTL wrapper were bare payloads.
+    if (!parsed || typeof parsed !== 'object') return null;
+    const at = typeof (parsed as { at?: number }).at === 'number' ? (parsed as { at: number }).at : undefined;
+    const data = (parsed as { data?: IngestedDeveloper }).data ?? (parsed as IngestedDeveloper);
+    if (at !== undefined && Date.now() - at > CACHE_TTL_MS) return null;
+    if (!data || typeof data !== 'object') return null;
+    return data as IngestedDeveloper;
+  } catch {
+    store.metadata.delete(key);
+    return null;
+  }
 }
 
 function nowIso(): string {

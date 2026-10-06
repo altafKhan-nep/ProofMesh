@@ -34,6 +34,9 @@ export const DEFAULT_RATE_LIMITS: RateLimitRules = {
   'POST /api/invite': { limit: 30, windowMs: 60_000 },
   'POST /api/listings/:id/verified-link': { limit: 30, windowMs: 60_000 },
   'DELETE /api/listings/:id': { limit: 30, windowMs: 60_000 },
+  'POST /api/search': { limit: 30, windowMs: 60_000 },
+  'GET /api/stats': { limit: 60, windowMs: 60_000 },
+  'POST /api/attest': { limit: 10, windowMs: 60_000 },
   'POST /api/reset': { limit: 10, windowMs: 60_000 }
 };
 
@@ -109,6 +112,8 @@ export function rateLimitsFromEnv(
     RATE_LIMIT_ACTION_CHALLENGE: 'POST /api/auth/action-challenge',
     RATE_LIMIT_BIND: 'POST /api/bind',
     RATE_LIMIT_ANALYZE: 'POST /api/analyze',
+    RATE_LIMIT_SEARCH: 'POST /api/search',
+    RATE_LIMIT_ATTEST: 'POST /api/attest',
     RATE_LIMIT_RESET: 'POST /api/reset'
   };
   for (const [key, rule] of Object.entries(envMap)) {

@@ -111,6 +111,63 @@ export interface SiwsMessageParts {
   skill?: string;
 }
 
+/**
+ * Derive the SIWS domain + URI from the actual page making the request.
+ * Phantom validates SIWS messages strictly: the `domain`/`URI` must match the
+ * requesting site's origin, otherwise the signing popup is rejected with
+ * "The app's signature request cannot be shown due to invalid formatting."
+ * Falls back to the canonical proofmesh.xyz values when no origin is supplied
+ * (e.g. non-browser API clients).
+ */
+export function siwsOrigin(opts: {
+  origin?: string | null;
+  protocol?: string;
+  hostname?: string;
+}): { domain: string; uri: string } {
+  const raw = opts.origin?.trim();
+  if (raw) {
+    try {
+      const u = new URL(raw);
+      if (u.protocol === 'http:' || u.protocol === 'https:') {
+        return { domain: u.host, uri: u.origin };
+      }
+    } catch {
+      /* fall through to host-based derivation */
+    }
+  }
+  if (opts.hostname) {
+    const host = opts.hostname.replace(/:\d+$/, '');
+    const port = new URL(`${opts.protocol === 'https' ? 'https' : 'http'}://${opts.hostname}`).port;
+    const uriHost = port && port !== '80' && port !== '443' ? `${host}:${port}` : host;
+    const secure = opts.protocol === 'https';
+    return { domain: uriHost, uri: `${secure ? 'https' : 'http'}://${uriHost}` };
+  }
+  return { domain: SIWS_DOMAIN, uri: SIWS_URI };
+}
+
+/**
+ * Build a SIWS message byte-compatible with the reference parser used by
+ * wallet extensions (Phantom: `@solana/wallet-standard-util`):
+ *
+ *   ${domain} wants you to sign in with your Solana account:
+ *   ${address}
+ *
+ *   ${statement}
+ *
+ *   URI: ${uri}
+ *   Version: ${version}
+ *   Chain ID: ${chainId}
+ *   Nonce: ${nonce}
+ *   Issued At: ${issuedAt}
+ *   Expiration Time: ${expirationTime}
+ *
+ * The address MUST be the second line (the header's trailing newline is
+ * consumed by the domain regex) and only the standard fields may follow the
+ * statement — any free-text "GitHub account:"-style line between the statement
+ * and the field block makes the whole message fail `parseSignInMessage` and
+ * Phantom refuses the popup with "invalid formatting". Claim context lives in
+ * the statement instead.
+ */
 export function buildSiwsMessage(parts: Omit<SiwsMessageParts, 'statement'> & { statement?: string }): string {
   const statement =
     parts.statement ??
@@ -119,32 +176,21 @@ export function buildSiwsMessage(parts: Omit<SiwsMessageParts, 'statement'> & { 
       : parts.subject
         ? `Authorise this ProofMesh account to publish on-chain credentials for @${parts.subject}.`
         : 'Determine your role on ProofMesh and prove ownership of this wallet.');
-  const lines = [
-    `${parts.domain} wants you to sign in with your Solana account:`,
-    ``,
-    parts.wallet,
-    ``,
-    statement
-  ];
-  if (parts.subject) {
-    lines.push(``, `GitHub account: ${parts.subject}`);
+  let message = `${parts.domain} wants you to sign in with your Solana account:\n`;
+  message += parts.wallet;
+  if (statement) {
+    message += `\n\n${statement}`;
   }
-  if (parts.repo) {
-    lines.push(`Repository: ${parts.repo}`);
-  }
-  if (parts.skill) {
-    lines.push(`Skill: ${parts.skill}`);
-  }
-  lines.push(
-    ``,
+  const fields = [
     `URI: ${parts.uri}`,
     `Version: ${SIWS_VERSION}`,
     `Chain ID: ${parts.chainId}`,
     `Nonce: ${parts.nonce}`,
     `Issued At: ${parts.issuedAt}`,
     `Expiration Time: ${parts.expirationTime}`
-  );
-  return lines.join('\n');
+  ];
+  message += `\n\n${fields.join('\n')}`;
+  return message;
 }
 
 const NONCE_RE = /^Nonce:\s*(.+)$/m;
@@ -186,7 +232,13 @@ export function verifySiwsSignature(
 
 export function newChallenge(
   wallet: string,
-  opts: { purpose?: 'signin' | 'bind' | 'attest'; subject?: string; repo?: string; skill?: string } = {}
+  opts: {
+    purpose?: 'signin' | 'bind' | 'attest';
+    subject?: string;
+    repo?: string;
+    skill?: string;
+    origin?: { domain: string; uri: string };
+  } = {}
 ): SiwsChallenge {
   const issuedAt = new Date();
   const expirationTime = new Date(issuedAt.getTime() + CHALLENGE_TTL_MS);
@@ -194,11 +246,13 @@ export function newChallenge(
   const purpose = opts.purpose ?? 'signin';
   const subject = purpose === 'signin' ? undefined : (opts.subject ?? '').trim();
   const attesting = purpose === 'attest';
+  const domain = opts.origin?.domain ?? SIWS_DOMAIN;
+  const uri = opts.origin?.uri ?? SIWS_URI;
   return {
     wallet,
     nonce,
-    domain: SIWS_DOMAIN,
-    uri: SIWS_URI,
+    domain,
+    uri,
     chainId: SIWS_CHAIN_ID,
     issuedAt: issuedAt.toISOString(),
     expirationTime: expirationTime.toISOString(),
@@ -207,8 +261,8 @@ export function newChallenge(
     ...(attesting && opts.skill ? { skill: opts.skill } : {}),
     message: buildSiwsMessage({
       wallet,
-      domain: SIWS_DOMAIN,
-      uri: SIWS_URI,
+      domain,
+      uri,
       chainId: SIWS_CHAIN_ID,
       nonce,
       issuedAt: issuedAt.toISOString(),
@@ -289,16 +343,28 @@ export function sha256Hex(input: string): string {
   return createHash('sha256').update(input).digest('hex');
 }
 
+/** Recursively sort object keys so nested field order cannot change a hash. */
+function canonicalize(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(canonicalize);
+  if (value !== null && typeof value === 'object') {
+    const record = value as Record<string, unknown>;
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(record).sort()) out[key] = canonicalize(record[key]);
+    return out;
+  }
+  return value;
+}
+
 /**
- * Stable hash of a request body. JSON key order must not change the hash, and a
- * bodyless request (GET/DELETE) must hash identically to an explicit `{}` — the
- * client signs `action: {}` for those.
+ * Stable hash of a request body. JSON key order must not change the hash (keys
+ * are sorted recursively), and a bodyless request (GET/DELETE) must hash
+ * identically to an explicit `{}` — the client signs `action: {}` for those.
  */
 export function bodyHash(body: unknown): string {
   const value = body === undefined || body === null ? {} : body;
   let canonical: string;
   try {
-    canonical = JSON.stringify(value, Object.keys(value as object).sort()) ?? '{}';
+    canonical = JSON.stringify(canonicalize(value));
   } catch {
     canonical = JSON.stringify(value) ?? '{}';
   }
@@ -310,19 +376,22 @@ export function newActionChallenge(params: {
   method: string;
   path: string;
   body: unknown;
+  origin?: { domain: string; uri: string };
 }): ActionChallenge {
   const issuedAt = new Date();
   const expirationTime = new Date(issuedAt.getTime() + ACTION_CHALLENGE_TTL_MS);
   const nonce = randomUUID();
   const hash = bodyHash(params.body);
+  const domain = params.origin?.domain ?? SIWS_DOMAIN;
+  const uri = params.origin?.uri ?? SIWS_URI;
   const message = [
-    `${SIWS_DOMAIN} authorises a ProofMesh privileged action:`,
+    `${domain} authorises a ProofMesh privileged action:`,
     ``,
     `Wallet: ${params.wallet}`,
     `Action: ${params.method.toUpperCase()} ${params.path}`,
     `Body SHA-256: ${hash}`,
     ``,
-    `URI: ${SIWS_URI}`,
+    `URI: ${uri}`,
     `Version: ${SIWS_VERSION}`,
     `Chain ID: ${SIWS_CHAIN_ID}`,
     `Nonce: ${nonce}`,
