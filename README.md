@@ -39,7 +39,7 @@ pnpm dev              # web on :3000 + api on :4000 (parallel)
 - API: http://localhost:4000/health
 
 ```bash
-pnpm test             # 49 unit tests (scoring-engine + verifier-sdk + api auth/gating)
+pnpm test             # 126 unit tests (scoring-engine + verifier-sdk + api auth/gating + attestation/audit)
 pnpm typecheck        # strict TS across all packages
 pnpm seed             # re-seed the API store
 pnpm backtest         # validation back-test (ARCHITECTURE.md §13) on real GitHub accounts
@@ -195,7 +195,7 @@ The skill credential is minted at a **wallet + skill PDA** by the Anchor program
 | Role | Keypair | Address |
 | --- | --- | --- |
 | Issuer / authority (fund with SOL) | `.secrets/proofmesh-devnet.json` | `6TGUP796erCCpxhosXToA4YNv4dxwz1yc7rmTvZEYagZ` |
-| Program ID (deploys against this keypair) | `.secrets/proofmesh-gate-keypair.json` | `8p8PNd75RdygjcmnvQMGW3U8Fr9AwgR21fSGSL7VBvAj` |
+| Program ID (deploys against this keypair) | `.secrets/proofmesh-gate-keypair.json` | `6hrtRLHSL3aKQifdz1prM1APBCRAz2XjghqxfNxBkJeV` |
 
 ### Getting devnet SOL (one-time)
 
@@ -265,7 +265,7 @@ solana program deploy \
   target/deploy/proofmesh_gate.so
 ```
 
-On success you'll see `Program Id: 8p8PNd75RdygjcmnvQMGW3U8Fr9AwgR21fSGSL7VBvAj`.
+On success you'll see `Program Id: 6hrtRLHSL3aKQifdz1prM1APBCRAz2XjghqxfNxBkJeV`.
 
 If deploy fails with `Attempt to debit an account but found no record of a prior credit`, the
 issuer is unfunded — repeat the faucet step above.
