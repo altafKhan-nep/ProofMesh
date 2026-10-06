@@ -1,3 +1,4 @@
+import { reviewWithLlm, skepticWithLlm } from './llm.js';
 /**
  * Deterministic analysis pipeline — ARCHITECTURE.md §5.
  *
@@ -9,12 +10,18 @@
 
 import { createHash } from 'node:crypto';
 import type { CredentialLevel } from '@proofmesh/shared-types';
-import { SKILLS } from '@proofmesh/shared-types';
-import { accountingFromEvidence, computeScore, progressFor, type DimensionSignals } from '@proofmesh/scoring-engine';
+import { ISSUANCE_GATE, SKILLS } from '@proofmesh/shared-types';
+import {
+  accountingFromEvidence,
+  computeLevel,
+  computeScore,
+  progressFor,
+  type DimensionSignals
+} from '@proofmesh/scoring-engine';
 import type { Store } from './store.js';
 import { deriveCredentialPda, readAttestationFromRpc } from '@proofmesh/verifier-sdk';
 import type { AnalysisJob, EvidenceItem, RepoSnapshot, SseEvent, SkillId } from '@proofmesh/shared-types';
-import { mintCredential } from './mint.js';
+import { mintCredential, updateCredential } from './mint.js';
 
 /** Real wallet+skill PDA; falls back to a deterministic placeholder if the
  * (rare) on-curve derivation throws. */
@@ -120,20 +127,21 @@ export async function runAnalysis(
   const signals = signalsFromEvidence(job.skillId, repos, baseEvidence);
   const accounting = accountingFromEvidence(baseEvidence);
   const languageCoverage = languageCoverageOf(repos, job.skillId);
-  const confidenceCap = skill.coverageCap;
 
-const score = computeScore({
+  const accountType = developer.accountType ?? 'User';
+  const score = computeScore({
     skillId: job.skillId,
     accounting,
     dimensionSignals: signals,
     languageCoverage,
     confidenceCap: skill.coverageCap,
     priorScore: 50,
-    distinctRepos: repos.filter((r) => !r.isFork).length || undefined,
-    tier2Attestations: accounting.maintainerAttestations >= 2 ? 1 : 0
+    distinctRepos: repos.filter((r) => !r.isFork).length,
+    accountType,
+    tier2Attestations: accounting.maintainerAttestations >= 2 ? 1 : 0,
+    developerId: job.developerId,
+    analyzerVersion: skill.analyzerVersion
   });
-  score.developerId = job.developerId;
-  score.analyzerVersion = skill.analyzerVersion;
   score.snapshotCommitSha = repos[0]?.snapshotCommitSha ?? null;
   store.saveScore(score);
   job.scoreId = score.id;
@@ -151,16 +159,26 @@ const score = computeScore({
   );
 
   // ---- 05 REVIEWER PASS --------------------------------------------------
-  const review = reviewForEvidence(baseEvidence, score);
+  const llmReview = job.llmEnabled ? await reviewWithLlm(baseEvidence, score) : undefined;
+  const review = llmReview ?? reviewForEvidence(baseEvidence, score);
   await advance(
     'REVIEWER_PASS',
     job.llmEnabled
-      ? 'LLM reviewer pass requested — running deterministic fallback (no ANTHROPIC_API_KEY configured).'
+      ? (llmReview
+          ? review.excerpt
+          : 'LLM reviewer requested but unavailable (no key, timeout, or non-JSON reply) — deterministic review used.')
       : review.excerpt
   );
 
   // ---- 06 SKEPTIC PASS (can only lower confidence / block — never raise) --
-  const skeptic = skepticAssessment(repos, baseEvidence);
+  const llmSkeptic = job.llmEnabled ? await skepticWithLlm(repos, baseEvidence) : undefined;
+  const skeptic = llmSkeptic ?? skepticAssessment(repos, baseEvidence);
+  // The skeptic previously emitted its deterministic notes verbatim while
+  // `llmEnabled` was true, so the UI could not tell an LLM review from a
+  // fallback. Disclose it.
+  const skepticSource = job.llmEnabled
+    ? (llmSkeptic ? 'LLM skeptic' : 'deterministic skeptic (LLM unavailable)')
+    : 'deterministic skeptic';
   let finalConfidence = score.confidence;
   if (skeptic.reduction > 0) {
     const prior = finalConfidence;
@@ -170,14 +188,13 @@ const score = computeScore({
   await advance(
     'SKEPTIC_PASS',
     skeptic.notes.length
-      ? `Skeptic: ${skeptic.notes.join(' ')} (confidence ${(score.confidence * 100).toFixed(1)}% → ${(
+      ? `${skepticSource}: ${skeptic.notes.join(' ')} (confidence ${(score.confidence * 100).toFixed(1)}% → ${(
           finalConfidence * 100
         ).toFixed(1)}%)`
-      : 'Skeptic: no falsification flags raised; confidence unchanged.'
+      : `${skepticSource}: no falsification flags raised; confidence unchanged.`
   );
 
   // ---- 07 CREDENTIAL CHECK ----------------------------------------------
-  const needsWallet = developer.linkedWallets.length === 0;
   const levelWon = computeLevelOf(score.shownScore, finalConfidence, accounting.maintainerAttestations);
   // ProofMesh credentials attest an *individual* developer. Organization and Bot
   // accounts can post excellent repos (the round-3 back-test caught `nestjs` and
@@ -187,14 +204,18 @@ const score = computeScore({
   // ARCHITECTURE.md §6: Verified = score ≥ 60 AND confidence ≥ 0.60 — a
   // sub-60 shown score (thin-evidence shrinkage) must NOT mint, even with
   // high volume. Round-2 back-test surfaced this (level 0 clamped to mint).
+  // A credential is only ever attributed to a wallet with a fully verified
+  // binding (wallet signature + GitHub OAuth). An unbound account may score,
+  // but its credential stays held — we never mint into 'unbound' or invent a
+  // placeholder PDA.
   const eligibilityPassed =
     !blocked &&
     isIndividual &&
     score.passedEligibility &&
-    finalConfidence >= 0.6 &&
-    score.shownScore >= 60 &&
+    finalConfidence >= ISSUANCE_GATE.minConfidence &&
+    score.shownScore >= ISSUANCE_GATE.minShownScore &&
     levelWon >= 1 &&
-    !needsWallet;
+    bindingVerified;
 
   let credentialId: string | null = null;
   let attestationAddress: string | null = null;
@@ -240,25 +261,43 @@ const score = computeScore({
       const mintLevel = (cred.level >= 1 ? cred.level : 1) as 1 | 2 | 3;
       const rpcUrl = process.env.SOLANA_RPC_URL ?? 'https://api.devnet.solana.com';
       const exists = await readAttestationFromRpc({ wallet, skillId: job.skillId, rpcUrl });
+      // Same bytes the report publishes. Previously this was
+      // `sha256Hash(evidenceRoot)` — a second hash over the hex *string* — so
+      // the on-chain `evidence_root` never matched `credential.evidenceRoot`
+      // and was impossible to reconcile.
+      const onChainArgs = {
+        wallet,
+        skill: job.skillId,
+        skillScore: cred.skillScore,
+        confidencePct: cred.confidencePercent,
+        level: mintLevel,
+        evidenceRoot,
+        analyzerVersion: skill.analyzerVersion
+      };
       if (exists) {
-        mintConfirmed = true;
-        await advance(
-          'CREDENTIAL_CHECK',
-          `Eligibility passed → on-chain credential already minted at ${cred.attestationAddress.slice(0, 8)}… (confirmed on devnet).`
-        );
+        // `init` means a PDA can only be created once, so a re-score must go
+        // through `update_credential`; previously the on-chain record was
+        // frozen at its first mint and diverged forever from the DB.
+        if (
+          exists.skillScore !== cred.skillScore ||
+          exists.confidencePercent !== cred.confidencePercent ||
+          exists.level !== cred.level
+        ) {
+          await updateCredential({ ...onChainArgs, expiresAt: 0 });
+          mintConfirmed = true;
+          await advance(
+            'CREDENTIAL_CHECK',
+            `Eligibility passed → on-chain credential re-scored at ${cred.attestationAddress.slice(0, 8)}… (${cred.skillScore}/${cred.confidencePercent}% updated on devnet).`
+          );
+        } else {
+          mintConfirmed = true;
+          await advance(
+            'CREDENTIAL_CHECK',
+            `Eligibility passed → on-chain credential already current at ${cred.attestationAddress.slice(0, 8)}… (confirmed on devnet).`
+          );
+        }
       } else {
-        await mintCredential(
-          {
-            wallet,
-            skill: job.skillId,
-            skillScore: cred.skillScore,
-            confidencePct: cred.confidencePercent,
-            level: mintLevel,
-            evidenceRoot: sha256Hash(evidenceRoot).slice(0, 64),
-            expiresAt: Math.floor(expiresAt.getTime() / 1000)
-          },
-          { skipConfirm: true }
-        );
+        await mintCredential(onChainArgs);
         const confirmed = await readAttestationFromRpc({ wallet, skillId: job.skillId, rpcUrl });
         mintConfirmed = confirmed !== null;
         await advance(
@@ -279,8 +318,8 @@ const score = computeScore({
       'CREDENTIAL_CHECK',
       blocked
         ? 'Eligibility blocked by the skeptic pass (honest abstention).'
-        : needsWallet
-          ? 'Evidence qualifies, but no Solana wallet is bound — credential held pending wallet binding.'
+        : !bindingVerified
+          ? 'Evidence qualifies, but no verified wallet binding — credential held pending wallet binding (sign in + bind).'
           : `Not enough evidence for a credential (honest abstention). ${score.eligibilityReasons[0] ?? ''}`
     );
   }
@@ -310,12 +349,23 @@ export function languageCoverageOf(repos: { primaryLanguage: string | null; isFo
   if (relevant.length === 0) return 0;
   // GitHub canonical family names (see LANG_CANON in github.ts). The script
   // family for the shipped analyzers:
-  //   typescript  ← typescript + javascript (JS counts: TS is a strict superset)
-  //   java        ← java
   //   solana-anchor ← rust
-  const familyOf = (skill: SkillId): string[] =>
-    skill === 'java' ? ['java'] : skill === 'typescript' ? ['typescript', 'javascript'] : ['rust'];
-  const desired = familyOf(skillId);
+  //   typescript    ← typescript + javascript (JS counts: TS is a strict superset)
+  //   java          ← java
+  //   python        ← python
+  //   go            ← go
+  //   rust          ← rust
+  //   solidity      ← solidity
+  const FAMILY: Record<SkillId, string[]> = {
+    'solana-anchor': ['rust'],
+    typescript: ['typescript', 'javascript'],
+    java: ['java'],
+    python: ['python'],
+    go: ['go'],
+    rust: ['rust'],
+    solidity: ['solidity']
+  };
+  const desired = FAMILY[skillId];
   const matched = relevant.filter(
     (r) => r.primaryLanguage && desired.includes(r.primaryLanguage.toLowerCase())
   ).length;
@@ -435,12 +485,8 @@ export function skepticAssessment(
   return { notes, reduction: Math.min(0.25, reduction), blocks: tutorial && forks === repos.length };
 }
 
-export function computeLevelOf(shown: number, confidence: number, tier2: number): CredentialLevel {
-  if (shown >= 88 && confidence >= 0.85 && tier2 >= 1) return 3;
-  if (shown >= 75 && confidence >= 0.75) return 2;
-  if (shown >= 60 && confidence >= 0.6) return 1;
-  return 0;
-}
+/** Re-exported so there is exactly one level ladder in the codebase. */
+export const computeLevelOf = computeLevel;
 
 export function jobSse(job: AnalysisJob): SseEvent | null {
   const latest = progressFor(job.stages);
@@ -484,7 +530,9 @@ export function predictCredential(
     languageCoverage,
     confidenceCap: skill.coverageCap,
     priorScore: 50,
-    distinctRepos: repos.filter((r) => !r.isFork).length || undefined,
+    distinctRepos: repos.filter((r) => !r.isFork).length,
+    accountType: opts.accountType ?? 'User',
+    developerId: '',
     tier2Attestations: accounting.maintainerAttestations >= 2 ? 1 : 0
   });
   const skeptic = skepticAssessment(repos, evidence);
@@ -499,7 +547,13 @@ export function predictCredential(
   // Individual-only: org/bot accounts are never issuance-eligible (round-3
   // back-test found framework orgs out-scoring individual maintainers).
   const isIndividual = (opts.accountType ?? 'User') === 'User';
-  const issued = !skeptic.blocks && isIndividual && score.passedEligibility && finalConfidence >= 0.6 && level >= 1;
+  const issued =
+    !skeptic.blocks &&
+    isIndividual &&
+    score.passedEligibility &&
+    finalConfidence >= ISSUANCE_GATE.minConfidence &&
+    score.shownScore >= ISSUANCE_GATE.minShownScore &&
+    level >= 1;
   const reasons = [...score.eligibilityReasons];
   if (!isIndividual) reasons.unshift('Account type is not an individual GitHub user (organization/bot).');
   return {
