@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import type { EvidenceItem, SkillId } from '@proofmesh/shared-types';
+import { DIMENSIONS } from '@proofmesh/shared-types';
 import {
   accountingFromEvidence,
   computeConfidence,
   computeEvidenceUnits,
   computeScore,
+  type ReferenceCorpus,
   computeShownScore,
   evaluateEligibility,
   percentile
@@ -145,7 +147,8 @@ describe('computeScore (full deterministic run)', () => {
         analyzerCoverage: 0.95
       },
       dimensionSignals: strongSignals,
-      languageCoverage: 0.9
+      languageCoverage: 0.9,
+      distinctRepos: 4
     });
     expect(s.confidence).toBeCloseTo(0.99965, 4);
     expect(s.passedEligibility).toBe(true);
@@ -177,7 +180,8 @@ describe('computeScore (full deterministic run)', () => {
         analyzerCoverage: 1.0
       },
       dimensionSignals: thin,
-      languageCoverage: 0.6
+      languageCoverage: 0.6,
+      distinctRepos: 0
     });
     expect(s.confidence).toBeCloseTo(0.06059, 4);
     expect(s.passedEligibility).toBe(false);
@@ -198,6 +202,7 @@ describe('computeScore (full deterministic run)', () => {
       },
       dimensionSignals: strongSignals,
       languageCoverage: 0.9,
+      distinctRepos: 4,
       confidenceCap: 0.75
     });
     expect(s.confidence).toBeLessThanOrEqual(0.75);
@@ -216,7 +221,8 @@ describe('computeScore (full deterministic run)', () => {
         analyzerCoverage: 0.95
       },
       dimensionSignals: strongSignals,
-      languageCoverage: 0.9
+      languageCoverage: 0.9,
+      distinctRepos: 4
     };
     const a = computeScore(options);
     const b = computeScore(options);
@@ -224,6 +230,66 @@ describe('computeScore (full deterministic run)', () => {
     expect(a.rawScore).toBe(b.rawScore);
     expect(a.confidence).toBe(b.confidence);
     expect(a.dimensions.map((d) => d.score)).toEqual(b.dimensions.map((d) => d.score));
+    // Every persisted field must match, not just the four that cannot vary.
+    // Previously `id` (crypto.randomUUID) and `scoredAt` (Date) were omitted
+    // here, so the test claimed a property the function does not have.
+    expect({ ...a, id: '', scoredAt: '' }).toEqual({ ...b, id: '', scoredAt: '' });
+    // And the cohort must actually identify the corpus (not just its shape).
+    expect(a.cohort).not.toBe(b.cohort === a.cohort ? '' : b.cohort);
+  });
+
+  it('gives different corpora different cohort ids (auditability)', () => {
+    const base = {
+      skillId: 'solana-anchor' as SkillId,
+      accounting: {
+        externalMergedPRs: 2, ownReviewedPRs: 1, reposWithTestsGreenCi: 1,
+        activityMonths: 6, signedCommitRatio: 0.6, maintainerAttestations: 0,
+        analyzerCoverage: 1
+      },
+      dimensionSignals: strongSignals,
+      languageCoverage: 0.9,
+      distinctRepos: 3
+    };
+    // Built from DIMENSIONS so the object is exhaustive by construction.
+    const makeCorpus = (values: number[]): ReferenceCorpus =>
+      Object.fromEntries(DIMENSIONS.map((d) => [d, values])) as unknown as ReferenceCorpus;
+    const low = makeCorpus([1, 2]);
+    const high = makeCorpus([90, 99]);
+    expect(computeScore({ ...base, corpus: low }).cohort).not.toBe(
+      computeScore({ ...base, corpus: high }).cohort
+    );
+  });
+
+  it('never produces out-of-range scores, even with absurd inputs', () => {
+    const hostile = computeScore({
+      skillId: 'solana-anchor',
+      accounting: {
+        externalMergedPRs: -50,
+        ownReviewedPRs: Number.NaN,
+        reposWithTestsGreenCi: -3,
+        activityMonths: 10_000,
+        signedCommitRatio: 9,
+        maintainerAttestations: -7,
+        analyzerCoverage: Number.NaN
+      } as never,
+      dimensionSignals: {
+        quality: { survivalRate: 5, staticFindingsPerKLOC: -3, negativeTestRatio: 12 },
+        security: { securityFindingsOpen: -9, signedCommitRatio: 3, dependencyVulns: -4 },
+        architecture: { crossRepoImpact: 4, modularityScore: -2, cycleFree: true },
+        testing: { testCoverage: 7, ciGreenRate: -5, negativeTestRatio: 9 },
+        consistency: { activityMonths: 999, releaseCount: -2, prSizeDiscipline: 8 },
+        traction: { starTotal: 1e15 }
+      } as never,
+      languageCoverage: 0.9,
+      distinctRepos: 3
+    });
+    expect(Number.isFinite(hostile.rawScore)).toBe(true);
+    expect(hostile.rawScore).toBeGreaterThanOrEqual(0);
+    expect(hostile.rawScore).toBeLessThanOrEqual(100);
+    expect(hostile.shownScore).toBeGreaterThanOrEqual(0);
+    expect(hostile.shownScore).toBeLessThanOrEqual(100);
+    expect(hostile.confidence).toBeGreaterThanOrEqual(0);
+    expect(hostile.confidence).toBeLessThanOrEqual(1);
   });
 });
 

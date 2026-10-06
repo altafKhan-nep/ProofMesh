@@ -1,5 +1,6 @@
 import type {
   AnalysisJob,
+  CredentialLevel,
   DimensionId,
   DimensionScore,
   EvidenceAccounting,
@@ -38,6 +39,11 @@ export type ReferenceCorpus = Record<DimensionId, readonly number[]>;
  */
 export function percentile(value: number, corpus: readonly number[]): number {
   if (corpus.length === 0) return 50;
+  // A signal that could not be computed earns NO credit (0): absence of
+  // evidence is not evidence of quality. Returning NaN here instead would
+  // propagate through `computeDimensionScores` into the persisted
+  // rawScore/shownScore, where nothing could catch it.
+  if (!Number.isFinite(value)) return 0;
   let below = 0;
   let equal = 0;
   for (const v of corpus) {
@@ -71,25 +77,37 @@ export interface AccountingInput {
   analyzerCoverage: number; // 0.3–1.0
 }
 
+/**
+ * Finite, non-negative count. Callers pass values derived from the GitHub API
+ * and from persisted JSON, so `NaN`/`undefined`/negative are all reachable and
+ * must not reach the arithmetic.
+ */
+const count = (v: number | undefined): number =>
+  typeof v === 'number' && Number.isFinite(v) && v > 0 ? v : 0;
+
 /** Pure evidence-unit accounting → E. */
 export function computeEvidenceUnits(input: AccountingInput): number {
   const { unitValues } = CALIBRATION;
   const base =
-    input.externalMergedPRs * unitValues.externalMergedPR +
-    input.ownReviewedPRs * unitValues.ownReviewedPR +
-    input.reposWithTestsGreenCi * unitValues.repoTestsGreenCi +
-    Math.min(input.activityMonths, CALIBRATION.activityMonthCap) * unitValues.activityMonth +
-    Math.min(input.tractionRepos ?? 0, CALIBRATION.tractionRepoCap) * unitValues.tractionRepo +
+    count(input.externalMergedPRs) * unitValues.externalMergedPR +
+    count(input.ownReviewedPRs) * unitValues.ownReviewedPR +
+    count(input.reposWithTestsGreenCi) * unitValues.repoTestsGreenCi +
+    Math.min(count(input.activityMonths), CALIBRATION.activityMonthCap) * unitValues.activityMonth +
+    Math.min(count(input.tractionRepos), CALIBRATION.tractionRepoCap) * unitValues.tractionRepo +
     (input.signedCommitRatio >= 0.5 ? unitValues.signedCommitBonus : 0) +
-    input.maintainerAttestations * unitValues.maintainerAttestation;
-  const coverage = clamp(input.analyzerCoverage, 0.3, 1.0);
+    count(input.maintainerAttestations) * unitValues.maintainerAttestation;
+  const coverage = clamp(Number.isFinite(input.analyzerCoverage) ? input.analyzerCoverage : 0.3, 0.3, 1.0);
   return round(base * coverage, 4);
 }
 
-/** c = 1 − exp(−E / E0). */
+/** c = 1 − exp(−E / E0). Always in [0, 1]. */
 export function computeConfidence(evidenceUnits: number): number {
-  const c = 1 - Math.exp(-evidenceUnits / CALIBRATION.E0);
-  return round(c, 6);
+  // A negative E makes exp() overflow and c hugely negative (verified E = -210
+  // produced -2.5e14), which then flowed into shownScore and into user-facing
+  // eligibility prose. E is evidence volume, so it cannot be negative.
+  const e = Math.max(0, Number.isFinite(evidenceUnits) ? evidenceUnits : 0);
+  const c = 1 - Math.exp(-e / CALIBRATION.E0);
+  return round(clamp(c, 0, 1), 6);
 }
 
 /** shown_score = prior + c·(raw − prior). */
@@ -104,23 +122,35 @@ export interface Eligibility {
     confidenceMet: boolean;
     coverageMinMet: boolean;
     reposMet: boolean;
+    individualAccount: boolean;
   };
 }
 
 /**
  * Credential eligibility (ARCHITECTURE.md §6):
- *   c ≥ 0.60 AND language coverage ≥ 50% AND (≥ 2 distinct repos OR ≥ 1 external merged PR)
+ *   c ≥ 0.60 AND language coverage ≥ 50%
+ *   AND (≥ 2 distinct repos OR ≥ 1 external merged PR)
+ *   AND account type = individual GitHub user
+ *
+ * The account-type rule lives here, not only in the API pipeline:
+ * `ScoreSnapshot.passedEligibility` is persisted and publicly served, so it
+ * has to be meaningful on its own. This is the rule that keeps org/bot
+ * accounts (`nestjs`, `spring-projects`) out of the credentialed set — the
+ * round-3 back-test showed they out-score real maintainers on every measured
+ * signal, so no score threshold can substitute for it.
  */
 export function evaluateEligibility(
   confidence: number,
   languageCoverage: number,
   distinctRepos: number,
-  externalMergedPRs: number
+  externalMergedPRs: number,
+  accountType: 'User' | 'Organization' | 'Bot' = 'User'
 ): Eligibility {
   const confidenceMet = confidence >= CALIBRATION.minConfidence;
   const coverageMinMet = languageCoverage >= CALIBRATION.minLanguageCoverage;
   const reposMet =
     distinctRepos >= CALIBRATION.minRepos || externalMergedPRs >= 1;
+  const individualAccount = accountType === 'User';
 
   const reasons: string[] = [];
   if (!confidenceMet) {
@@ -142,11 +172,22 @@ export function evaluateEligibility(
       `Need ≥ ${CALIBRATION.minRepos} distinct public repos or ≥ 1 externally merged PR (found ${distinctRepos} repos / ${externalMergedPRs} external merges).`
     );
   }
+  if (!individualAccount) {
+    reasons.push(`Credentials attest an individual developer; this is a ${accountType} account.`);
+  }
   if (reasons.length === 0) {
     reasons.push('Evidence volume and coverage clear the issuance threshold.');
   }
 
-  return { passed: reasons.length === 1 && reasons[0]!.includes('clear the issuance'), requirements: { confidenceMet, coverageMinMet, reposMet }, reasons };
+  // Derived from the computed booleans, never by searching the prose above.
+  // The previous implementation used `reasons[0].includes('clear the
+  // issuance')`, so editing that English sentence silently flipped issuance
+  // for every developer in the system.
+  return {
+    passed: confidenceMet && coverageMinMet && reposMet && individualAccount,
+    requirements: { confidenceMet, coverageMinMet, reposMet, individualAccount },
+    reasons
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -211,7 +252,24 @@ export function normalizeSignals(signals: DimensionSignals): Record<DimensionId,
   // saturates at ~100k combined stars; corpus ranks the remainder.
   const traction = round((100 * Math.log10(1 + Math.max(0, starTotal))) / Math.log10(1 + 1e5), 2);
 
-  return { quality, security, architecture, testing, consistency, traction };
+  // Every dimension is finally clamped to the documented 0–100 contract.
+  //
+  // Several terms above multiply a raw signal by 100 without clamping
+  // (`survivalRate`, `signedCommitRatio`, `crossRepoImpact`, `prSizeDiscipline`,
+  // `quality`'s first term), so e.g. `survivalRate: 5` yielded `quality: 300`.
+  // A non-finite input likewise produced NaN, which previously reached the
+  // persisted rawScore. Clamping here means a bad signal earns no credit
+  // rather than corrupting the whole credential.
+  const bounded = (v: number): number => (Number.isFinite(v) ? clamp(v, 0, 100) : 0);
+
+  return {
+    quality: bounded(quality),
+    security: bounded(security),
+    architecture: bounded(architecture),
+    testing: bounded(testing),
+    consistency: bounded(consistency),
+    traction: bounded(traction)
+  };
 }
 
 export function computeDimensionScores(
@@ -228,18 +286,52 @@ export function computeDimensionScores(
 }
 
 export function computeRawScore(dimensions: DimensionScore[]): number {
-  const raw = dimensions.reduce(
-    (acc, d) => acc + DIMENSION_WEIGHTS[d.dimension] * d.score,
-    0
-  );
+  const raw = dimensions.reduce((acc, d) => {
+    const weight = DIMENSION_WEIGHTS[d.dimension];
+    // Guard rather than trust: `DIMENSION_WEIGHTS[unknown]` is `undefined`,
+    // and `undefined * score` is NaN, which propagates into rawScore,
+    // shownScore and the persisted snapshot. `dimension` was widened to
+    // `string` while DIMENSIONS lacked `as const`, so this was reachable.
+    if (weight === undefined) {
+      throw new Error(`computeRawScore: unknown dimension ${JSON.stringify(d.dimension)}`);
+    }
+    return acc + weight * d.score;
+  }, 0);
   return round(raw, 2);
+}
+
+/**
+ * Content address for the reference corpus a score was computed against.
+ * "Deterministic and auditable" is the product's central claim, so two scores
+ * measured against different corpora must never share an id.
+ */
+function cohortDigest(corpus: ReferenceCorpus, skillId: SkillId): string {
+  const canonical = DIMENSIONS.map((d) => `${d}:${corpus[d].join(',')}`).join('|');
+  let h = 0x811c9dc5;
+  const input = `${skillId}::${canonical}`;
+  for (let i = 0; i < input.length; i++) {
+    h ^= input.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return `${input.length.toString(16)}-${h.toString(16).padStart(8, '0')}`;
 }
 
 // ---------------------------------------------------------------------------
 // Full scoring + level
 // ---------------------------------------------------------------------------
 
-export function computeLevel(shownScore: number, confidence: number, tier2Attestations: number): 0 | 1 | 2 | 3 {
+/**
+ * Awarded credential level, or 0 when nothing is earned.
+ *
+ * NOTE: this previously returned a floor of 1 while the API's own
+ * `computeLevelOf` returned 0 for the same inputs, so the level written on-chain
+ * depended on which copy you called. There is now exactly one ladder.
+ */
+export function computeLevel(
+  shownScore: number,
+  confidence: number,
+  tier2Attestations: number
+): CredentialLevel {
   const levels: Array<[3, number, number] | [2, number, number] | [1, number, number]> = [
     [3, LEVEL_INFO[3].minScore, LEVEL_INFO[3].minConfidence],
     [2, LEVEL_INFO[2].minScore, LEVEL_INFO[2].minConfidence],
@@ -251,7 +343,7 @@ export function computeLevel(shownScore: number, confidence: number, tier2Attest
       return level;
     }
   }
-  return 1; // at least "Verified" if eligibility passed; caller gates on eligibility anyway
+  return 0;
 }
 
 /** Deterministic-only full score. Inputs mirror a scoring-engine run, never an LLM. */
@@ -264,31 +356,45 @@ export function computeScore(input: {
   confidenceCap?: number;
   priorScore?: number;
   tier2Attestations?: number;
-  /** actual distinct public repos the developer owns (used for the ≥2-repos gate) */
-  distinctRepos?: number;
+  /**
+   * Actual distinct non-fork public repos the developer owns.
+   *
+   * REQUIRED, and deliberately not derived: the previous fallback
+   * (`externalMergedPRs + ownReviewedPRs`) counted *PRs* while satisfying the
+   * *repos* gate, so one repo with six reviewed PRs passed "≥2 distinct repos"
+   * — and double-counted, since externalMergedPRs is itself already a distinct
+   * repo count. Fail closed instead of guessing.
+   */
+  distinctRepos: number;
+  /** GitHub account type; only `User` may hold a ProofMesh credential. */
+  accountType?: 'User' | 'Organization' | 'Bot';
+  /** Caller-supplied identity — keeps `computeScore` free of impure defaults. */
+  id?: string;
+  developerId?: string;
+  analyzerVersion?: string;
 }): ScoreSnapshot {
   const corpus = input.corpus ?? DEFAULT_CORPUS;
   const cap = input.confidenceCap ?? 1.0;
 
   const evidenceUnits = computeEvidenceUnits(input.accounting);
-  let confidence = computeConfidence(evidenceUnits);
-  confidence = round(Math.min(confidence, cap), 4);
+  const confidence = round(clamp(Math.min(computeConfidence(evidenceUnits), cap), 0, 1), 4);
 
   const dimensions = computeDimensionScores(input.dimensionSignals, corpus);
   const rawScore = computeRawScore(dimensions);
   const priorScore = input.priorScore ?? CALIBRATION.priorPercentile;
-  const shownScore = computeShownScore(rawScore, confidence, priorScore);
+  const shownScore = clamp(computeShownScore(rawScore, confidence, priorScore), 0, 100);
 
   const eligibility = evaluateEligibility(
     confidence,
     input.languageCoverage,
-    input.distinctRepos ?? input.accounting.externalMergedPRs + input.accounting.ownReviewedPRs,
-    input.accounting.externalMergedPRs
+    input.distinctRepos,
+    input.accounting.externalMergedPRs,
+    input.accountType ?? 'User'
   );
 
   return {
-    id: crypto.randomUUID(),
-    developerId: '',
+    id: input.id ?? crypto.randomUUID(),
+    developerId: input.developerId ?? '',
     skillId: input.skillId,
     rawScore,
     shownScore,
@@ -296,12 +402,13 @@ export function computeScore(input: {
     evidenceUnits,
     priorScore,
     dimensions,
-    cohort: `CORPUS-${Object.values(corpus)
-      .map((c) => c.length)
-      .join('x')}`,
+    // Content-addressed: two corpora with identical shapes but different
+    // values (verified: [1,2] vs [90,99] per dimension, rawScore 100 vs 18)
+    // previously produced the same `CORPUS-2x2x2x2x2x2` id.
+    cohort: `CORPUS-${cohortDigest(corpus, input.skillId)}`,
     snapshotCommitSha: null,
     scoredAt: new Date().toISOString(),
-    analyzerVersion: input.skillId,
+    analyzerVersion: input.analyzerVersion ?? input.skillId,
     passedEligibility: eligibility.passed,
     eligibilityReasons: eligibility.reasons
   };

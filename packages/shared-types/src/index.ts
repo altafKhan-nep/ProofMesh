@@ -121,14 +121,18 @@ export interface RepoSnapshot {
 // Scores (ARCHITECTURE.md §6)
 // ---------------------------------------------------------------------------
 
+/** `as const` MUST be on the array, not an element — otherwise the array
+ *  infers as `string[]` and `DimensionId` widens to `string`, making every
+ *  dimension-typed key accept arbitrary strings (and `DIMENSION_WEIGHTS[x]`
+ *  silently return `undefined`, so `undefined * score` poisons `rawScore`). */
 export const DIMENSIONS = [
   'quality',
   'security',
   'architecture',
   'testing',
   'consistency',
-  'traction' as const
-];
+  'traction'
+] as const;
 export type DimensionId = (typeof DIMENSIONS)[number];
 
 /** Round-2 weights (ARCHITECTURE.md §6): back-test showed live signals floor
@@ -146,12 +150,35 @@ export const DIMENSION_WEIGHTS: Record<DimensionId, number> = {
 
 /** Winning levels (ARCHITECTURE.md §6) */
 export type CredentialLevel = 0 | 1 | 2 | 3; // 0 = no credential, 1=Verified 2=Strong 3=Expert
-export const LEVEL_INFO: Record<number, { label: string; minScore: number; minConfidence: number }> = {
+// Keyed by the union, not `number`: `Record<number, …>` silently admits any
+// level, which let `LEVEL_INFO[credential.level].label` throw a 500 for an
+// out-of-range level read back from storage.
+/** Inclusive lower bounds for each level (ARCHITECTURE.md §6). */
+export const LEVEL_INFO: Record<CredentialLevel, { label: string; minScore: number; minConfidence: number }> = {
   0: { label: 'Not Enough Evidence', minScore: 0, minConfidence: 0 },
   1: { label: 'Verified', minScore: 60, minConfidence: 0.6 },
   2: { label: 'Strong', minScore: 75, minConfidence: 0.75 },
   3: { label: 'Expert', minScore: 88, minConfidence: 0.85 }
 };
+
+/**
+ * The single source of truth for issuance.
+ *
+ * Previously these thresholds were duplicated in five places — `LEVEL_INFO`,
+ * `CALIBRATION.minConfidence`, `scoring-engine`, two hand-rolled level ladders
+ * in `apps/api/src/pipeline.ts`, and a literal in the Rust program — with no
+ * test asserting they agree.
+ */
+export const ISSUANCE_GATE = {
+  /** Minimum shown (post-shrinkage) score to mint at all. */
+  minShownScore: 60,
+  /** Minimum final confidence to mint at all. */
+  minConfidence: 0.6,
+  /** Minimum language coverage of the analysed repos. */
+  minLanguageCoverage: 0.5,
+  /** Minimum distinct non-fork repos required absent an external merged PR. */
+  minDistinctRepos: 2
+} as const;
 
 export interface DimensionScore {
   dimension: DimensionId;
@@ -205,16 +232,72 @@ export const SKILLS = {
     analyzerVersion: 'pow.java.v1',
     coverageCap: 0.75,
     schema: 'pow.java.v1'
+  },
+  python: {
+    id: 'python',
+    label: 'Python',
+    analyzerVersion: 'pow.python.v1',
+    coverageCap: 0.75,
+    schema: 'pow.python.v1'
+  },
+  go: {
+    id: 'go',
+    label: 'Go',
+    analyzerVersion: 'pow.go.v1',
+    coverageCap: 0.75,
+    schema: 'pow.go.v1'
+  },
+  rust: {
+    id: 'rust',
+    label: 'Rust',
+    analyzerVersion: 'pow.rust.v1',
+    coverageCap: 0.8,
+    schema: 'pow.rust.v1'
+  },
+  solidity: {
+    id: 'solidity',
+    label: 'Solidity / EVM',
+    analyzerVersion: 'pow.solidity.v1',
+    coverageCap: 0.75,
+    schema: 'pow.solidity.v1'
   }
 } as const;
 
 export type SkillId = keyof typeof SKILLS;
+
+/**
+ * Canonical runtime list of skill ids, derived from `SKILLS`.
+ *
+ * IMPORTANT: `Object.hasOwn(SKILLS, id)` — never a bare `SKILLS[id]` truthiness
+ * test. `SKILLS` is an object literal, so inherited members (`toString`,
+ * `constructor`, `valueOf`, …) are truthy and would pass such a check, then
+ * crash downstream code that assumes `SKILLS[id]` is a real skill pack.
+ */
+export const SKILL_IDS = Object.keys(SKILLS) as readonly SkillId[];
+
+export function isSkillId(value: unknown): value is SkillId {
+  return typeof value === 'string' && Object.hasOwn(SKILLS, value);
+}
 
 // ---------------------------------------------------------------------------
 // Credentials (on-chain SAS representation — ARCHITECTURE.md §7.2)
 // ---------------------------------------------------------------------------
 
 export type CredentialStatus = 'ISSUED' | 'EXPIRED' | 'REVOKED';
+
+/** Live network numbers served by /api/stats — computed, never hardcoded. */
+export interface NetworkStats {
+  developers: number;
+  credentialsIssued: number;
+  jobsCompleted: number;
+  avgConfidencePct: number;
+}
+
+/**
+ * Deployed ProofMesh gate program (Anchor). Single source of truth for the
+ * UI, the verifier SDK, and any client that displays the issuer.
+ */
+export const PROGRAM_ID = '6hrtRLHSL3aKQifdz1prM1APBCRAz2XjghqxfNxBkJeV';
 
 export interface Credential {
   id: string;
@@ -521,7 +604,9 @@ export type AuditEventType =
   | 'admin.action'
   | 'analyze.request'
   | 'rate_limited'
-  | 'attest.attempt';
+  | 'attest.attempt'
+  | 'webhook.received'
+  | 'webhook.rejected';
 
 /**
  * One audit record. Deliberately excludes session tokens, signatures and SIWS
