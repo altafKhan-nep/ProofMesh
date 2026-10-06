@@ -8,6 +8,7 @@
  */
 
 import {
+  PIPELINE_STAGES,
   SKILLS,
   type ActionProofChallenge as ActionChallenge,
   type AnalysisJob,
@@ -19,7 +20,7 @@ import {
   type EvidenceType,
   type Invite,
   type Listing,
-  type PIPELINE_STAGES,
+  type NetworkStats,
   type RepoSnapshot,
   type ScoreSnapshot,
   type SearchDevelopersQuery,
@@ -27,20 +28,24 @@ import {
   type SkillId,
   type WalletBinding
 } from '@proofmesh/shared-types';
-import { AuditLog } from './audit.js';
+import { AuditLog, AUDIT_CAPACITY } from './audit.js';
 import type { AttestationRecord } from './attestation.js';
+import type { AuditEvent } from '@proofmesh/shared-types';
 import { InMemorySessionStore } from './session-store.js';
 import type { SessionStore } from './session-store.js';
 
-const PIPELINE: (typeof PIPELINE_STAGES)[number][] = [
-  'INGESTION',
-  'STATIC_ANALYSIS',
-  'OUTCOME_ANALYSIS',
-  'SCORING',
-  'REVIEWER_PASS',
-  'SKEPTIC_PASS',
-  'CREDENTIAL_CHECK'
-];
+/** Composite key for the (developer, skill) indexes. */
+const pairKey = (developerId: string, skillId: SkillId): string => `${developerId}::${skillId}`;
+
+/**
+ * A credential is valid until `expiresAt`. An unparseable date is treated as
+ * EXPIRED (fail closed) — treating it as valid would let a corrupt row serve a
+ * green badge forever.
+ */
+export function credentialExpired(c: Credential, now: number): boolean {
+  const t = Date.parse(c.expiresAt);
+  return !Number.isFinite(t) || t <= now;
+}
 
 export class Store {
   readonly developers = new Map<string, Developer>();
@@ -48,6 +53,18 @@ export class Store {
   readonly evidence = new Map<string, EvidenceItem[]>();
   readonly scores = new Map<string, ScoreSnapshot>();
   readonly credentials = new Map<string, Credential>();
+  /**
+   * Current record per (developer, skill). `scores`/`credentials` are history
+   * keyed by their own id; these indexes hold the *newest* entry so reads are
+   * O(1) and a re-analysis actually replaces the previous score.
+   *
+   * Previously `scoreFor`/`credentialFor` did a linear `[...map.values()].find`
+   * (first match wins) while writers used fresh random ids — so a second
+   * analysis of the same developer could never be observed, and `search` was
+   * O(devs x skills x scores).
+   */
+  private readonly latestScore = new Map<string, ScoreSnapshot>();
+  private readonly latestCredential = new Map<string, Credential>();
   readonly jobs = new Map<string, AnalysisJob>();
   readonly listings: Listing[] = [];
   readonly invites: Invite[] = [];
@@ -68,9 +85,12 @@ export class Store {
   /** Tier-2 attestations, keyed by deterministic id. Independently verifiable. */
   readonly attestations = new Map<string, AttestationRecord>();
 
-  constructor(opts: { sessionStore?: SessionStore } = {}) {
+  constructor(opts: { sessionStore?: SessionStore; seed?: boolean } = {}) {
     this.sessionStore = opts.sessionStore ?? new InMemorySessionStore();
-    seed(this);
+    // Production never ships fabricated developers/evidence. The calibrated
+    // corpus below exists solely so offline tests have deterministic data; the
+    // live server passes `seed: false` and only ever ingests real accounts.
+    if (opts.seed !== false) seed(this);
   }
 
   /** Restore pristine calibrated seed state (demo reset / CI teardown). */
@@ -80,6 +100,8 @@ export class Store {
     this.evidence.clear();
     this.scores.clear();
     this.credentials.clear();
+    this.latestScore.clear();
+    this.latestCredential.clear();
     this.jobs.clear();
     this.listings.length = 0;
     this.invites.length = 0;
@@ -90,6 +112,44 @@ export class Store {
     this.attestations.clear();
     void this.sessionStore.clear();
     seed(this);
+  }
+
+  /**
+   * Clear all domain state WITHOUT re-seeding.
+   *
+   * Used by the Postgres snapshot loader, which must REPLACE the current state.
+   * `reset()` would re-inject the fabricated test corpus into a production
+   * server, and it voids every live session.
+   */
+  resetToEmpty(): void {
+    this.developers.clear();
+    this.repos.clear();
+    this.evidence.clear();
+    this.scores.clear();
+    this.credentials.clear();
+    this.latestScore.clear();
+    this.latestCredential.clear();
+    this.jobs.clear();
+    this.listings.length = 0;
+    this.invites.length = 0;
+    this.metadata.clear();
+    this.challenges.clear();
+    this.actionChallenges.clear();
+    this.attestations.clear();
+    this.audit.clear();
+  }
+
+  /** Snapshot the audit ring. Replaces the private-field cast used previously. */
+  auditList(): unknown[] {
+    return this.audit.list({ limit: AUDIT_CAPACITY });
+  }
+
+  /** Restore the audit ring after loading a snapshot. */
+  auditRestore(events: unknown[]): void {
+    this.audit.clear();
+    for (const e of events) {
+      if (e && typeof e === 'object') this.audit.restore(e as AuditEvent);
+    }
   }
 
   listDevelopers(): Developer[] {
@@ -151,7 +211,13 @@ export class Store {
     this.purgeExpiredChallenges();
     const outstanding = [...this.challenges.values()].filter((c) => c.wallet === challenge.wallet).length;
     if (outstanding >= 5) {
-      return { ok: false, reason: 'too_many_open_challenges' };
+      // A user retrying SIGN IN after a hung wallet popup must not be locked
+      // out by their own stale challenges: evict the oldest outstanding one
+      // for the same wallet (single-use replay stays safe) instead of failing.
+      const oldest = [...this.challenges.values()]
+        .filter((c) => c.wallet === challenge.wallet)
+        .sort((a, b) => new Date(a.issuedAt).getTime() - new Date(b.issuedAt).getTime())[0];
+      if (oldest) this.challenges.delete(oldest.nonce);
     }
     this.challenges.set(challenge.nonce, challenge);
     return { ok: true };
@@ -246,16 +312,23 @@ export class Store {
     return this.evidence.get(developerId) ?? [];
   }
 
+  /** O(1) lookup of the most recent score for a (developer, skill) pair. */
   scoreFor(developerId: string, skillId: SkillId): ScoreSnapshot | undefined {
-    return [...this.scores.values()].find(
-      (s) => s.developerId === developerId && s.skillId === skillId
-    );
+    return this.latestScore.get(pairKey(developerId, skillId));
   }
 
+  /**
+   * Most recent ISSUED credential for a (developer, skill) pair.
+   *
+   * Also enforces expiry, which the old linear scan did not: an expired
+   * credential used to keep satisfying `credentialFor`, so `/api/badge` printed
+   * a green VERIFIED badge while `/api/verify` correctly 404'd.
+   */
   credentialFor(developerId: string, skillId: SkillId): Credential | undefined {
-    return [...this.credentials.values()].find(
-      (c) => c.developerId === developerId && c.skillId === skillId && c.status === 'ISSUED'
-    );
+    const c = this.latestCredential.get(pairKey(developerId, skillId));
+    if (!c || c.status !== 'ISSUED') return undefined;
+    if (credentialExpired(c, Date.now())) return undefined;
+    return c;
   }
 
   createJob(input: {
@@ -272,7 +345,7 @@ export class Store {
       githubUsername: input.githubUsername,
       skillId: input.skillId,
       status: 'queued',
-      stages: PIPELINE.map((stage) => ({
+      stages: PIPELINE_STAGES.map((stage) => ({
         stage,
         status: 'pending',
         detail: '',
@@ -293,17 +366,44 @@ export class Store {
 
   saveScore(score: ScoreSnapshot): void {
     this.scores.set(score.id, score);
+    this.latestScore.set(pairKey(score.developerId, score.skillId), score);
   }
 
   saveCredential(credential: Credential): void {
     this.credentials.set(credential.id, credential);
+    const key = pairKey(credential.developerId, credential.skillId);
+    // Supersede: only the newest record for a pair is authoritative, otherwise
+    // a re-mint can be shadowed forever by the first one.
+    const prior = this.latestCredential.get(key);
+    if (prior && prior.issuedAt > credential.issuedAt) return;
+    this.latestCredential.set(key, credential);
+  }
+
+  /** Live network numbers, computed from the store itself (never fabricated). */
+  stats(): NetworkStats {
+    const credentials = [...this.credentials.values()];
+    const avgConfidence = credentials.length
+      ? Math.round(credentials.reduce((sum, c) => sum + c.confidencePercent, 0) / credentials.length)
+      : 0;
+    return {
+      developers: this.developers.size,
+      credentialsIssued: credentials.length,
+      jobsCompleted: [...this.jobs.values()].filter((j) => j.status === 'completed').length,
+      avgConfidencePct: avgConfidence
+    };
   }
 
   search(query: SearchDevelopersQuery): CandidateDeveloper[] {
-    const candidates: CandidateDeveloper[] = [];
+    // Best candidate per developer. A developer matching three skills must be
+    // returned once (with their strongest), otherwise counts inflate and the
+    // marketplace looks like it has more people than it does.
+    const bestByDev = new Map<string, CandidateDeveloper>();
+    const allSkills = Object.keys(SKILLS) as SkillId[];
+    const now = Date.now();
+
     for (const dev of this.developers.values()) {
       const skills =
-        query.skills && query.skills.length > 0 ? query.skills : (Object.keys(SKILLS) as SkillId[]);
+        query.skills && query.skills.length > 0 ? query.skills : allSkills;
       for (const skillId of skills) {
         const score = this.scoreFor(dev.id, skillId);
         const cred = this.credentialFor(dev.id, skillId);
@@ -311,30 +411,33 @@ export class Store {
         if (score.shownScore < (query.minScore ?? 0)) continue;
         if (score.confidence < (query.minConfidence ?? 0)) continue;
         if (cred.level < (query.minLevel ?? 1)) continue;
-        const now = Date.now();
         if (
           query.activeWithinDays &&
           now - new Date(cred.issuedAt).getTime() > query.activeWithinDays * 86_400_000
         )
           continue;
-        candidates.push({
-          ...dev,
-          score,
-          skillId,
-          level: cred.level
-        });
+        const incumbent = bestByDev.get(dev.id);
+        if (!incumbent || score.shownScore > (incumbent.score as ScoreSnapshot).shownScore) {
+          bestByDev.set(dev.id, { ...dev, score, skillId, level: cred.level });
+        }
       }
     }
-    const limit = query.limit ?? 20;
-    return candidates
+
+    // Clamp defensively: this method is also called from backtest and tests, and
+    // `slice(0, -1)` would return the whole set.
+    const limit = Math.min(Math.max(Math.trunc(query.limit ?? 20), 1), 100);
+    return [...bestByDev.values()]
       .sort((a, b) => (b.score as ScoreSnapshot).shownScore - (a.score as ScoreSnapshot).shownScore)
       .slice(0, limit);
   }
 }
 
 // ---------------------------------------------------------------------------
-// Seed data — calibrated so thresholds produce real outcomes: strong devs
-// mint a credential, thin devs honestly abstain, mid devs sit at the edge.
+// Offline test fixtures — calibrated so thresholds produce real outcomes:
+// strong devs mint a credential, thin devs honestly abstain, mid devs sit at
+// the edge. These are NOT production data: they are never loaded by the live
+// server (Store `seed: false`), whose developers all come from live GitHub
+// ingestion and wallet/GitHub bindings.
 // ---------------------------------------------------------------------------
 
 const ALPHA = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz';

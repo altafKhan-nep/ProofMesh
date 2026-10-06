@@ -96,4 +96,15 @@ export class AuditLog {
   clear(): void {
     this.events = [];
   }
+
+  /**
+   * Re-insert a persisted event verbatim.
+   *
+   * Restoring (rather than re-recording) keeps the original timestamp and id,
+   * so a restored audit trail is indistinguishable from a continuous one.
+   */
+  restore(event: AuditEvent): void {
+    this.events.unshift(event);
+    if (this.events.length > this.capacity) this.events.length = this.capacity;
+  }
 }
