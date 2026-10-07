@@ -1,0 +1,4 @@
+{
+  "build": { "builder": "DOCKERFILE", "dockerfilePath": "apps/api/Dockerfile" },
+  "deploy": { "startCommand": "pnpm --filter @proofmesh/api start" }
+}

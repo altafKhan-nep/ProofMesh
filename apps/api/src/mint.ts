@@ -72,13 +72,32 @@ function resolveKeypairPath(config?: MintIssuerConfig): string {
   );
 }
 
-function loadKeypair(config?: MintIssuerConfig): Keypair {
-  const file = resolveKeypairPath(config);
+function readKeypairFile(file: string): Uint8Array {
   const parsed: unknown = JSON.parse(fs.readFileSync(file, 'utf8'));
   if (!Array.isArray(parsed) || parsed.length !== 64 || !parsed.every((n) => Number.isInteger(n) && n >= 0 && n <= 255)) {
     throw new Error(`issuer keypair ${file} is not a 64-byte Solana secret key array`);
   }
-  return Keypair.fromSecretKey(Uint8Array.from(parsed));
+  return Uint8Array.from(parsed as number[]);
+}
+
+function loadKeypairFromEnv(): Keypair | null {
+  const b64 = process.env.SOLANA_KEYPAIR;
+  if (!b64) return null;
+  try {
+    const raw = JSON.parse(Buffer.from(b64, 'base64').toString('utf8')) as number[];
+    if (!Array.isArray(raw) || raw.length !== 64) return null;
+    return Keypair.fromSecretKey(Uint8Array.from(raw));
+  } catch {
+    return null;
+  }
+}
+
+export function loadKeypair(config?: MintIssuerConfig): Keypair {
+  const fromEnv = loadKeypairFromEnv();
+  if (fromEnv) return fromEnv;
+  const path = resolveKeypairPath(config);
+  const bytes = readKeypairFile(path);
+  return Keypair.fromSecretKey(bytes);
 }
 
 export function getRpcUrl(config?: MintIssuerConfig): string {

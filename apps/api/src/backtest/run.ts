@@ -78,6 +78,72 @@ if (!process.env.BACKTEST_NO_COUNT) {
   };
 }
 
+function rankOf(vals: number[]): number[] {
+  const pairs = vals.map((v, i) => ({ v, i }));
+  pairs.sort((a, b) => {
+    if (a.v < b.v) return -1;
+    if (a.v > b.v) return 1;
+    return 0;
+  });
+  const ranks = new Array(vals.length).fill(0);
+  let i = 0;
+  while (i < pairs.length) {
+    let j = i;
+    while (j < pairs.length && pairs[j]!.v === pairs[i]!.v) j++;
+    const rank = (i + 1 + j) / 2;
+    for (let k = i; k < j; k++) {
+      ranks[pairs[k]!.i] = rank;
+    }
+    i = j;
+  }
+  return ranks;
+}
+
+function spearman(x: number[], y: number[]): number {
+  if (x.length !== y.length || x.length < 2) return 0;
+  const rx = rankOf(x);
+  const ry = rankOf(y);
+  const n = x.length;
+  let d2 = 0;
+  for (let i = 0; i < n; i++) {
+    const d = rx[i]! - ry[i]!;
+    d2 += d * d;
+  }
+  const rho = 1 - (6 * d2) / (n * (n * n - 1));
+  return round(rho, 4);
+}
+
+function aucFromScores(scores: number[], labels: boolean[]): number {
+  if (scores.length !== labels.length) return 0;
+  const pairs: Array<{ s: number; y: boolean }> = scores.map((s, i) => ({ s, y: labels[i]! }));
+  pairs.sort((a, b) => b.s - a.s);
+  let pos = 0;
+  let neg = 0;
+  for (const p of pairs) {
+    if (p.y) pos++;
+    else neg++;
+  }
+  if (pos === 0 || neg === 0) return 0;
+  let rankSumPos = 0;
+  let i = 0;
+  while (i < pairs.length) {
+    let j = i;
+    const s0 = pairs[i]!.s;
+    while (j < pairs.length && pairs[j]!.s === s0) j++;
+    let pCount = 0;
+    let nCount = 0;
+    for (let k = i; k < j; k++) {
+      if (pairs[k]!.y) pCount++;
+      else nCount++;
+    }
+    const rankAvg = (i + 1 + j) / 2;
+    rankSumPos += pCount * rankAvg;
+    i = j;
+  }
+  const auc = (rankSumPos - (pos * (pos + 1)) / 2) / (pos * neg);
+  return round(auc, 4);
+}
+
 const CURRENT_E0 = 30; // shared-types CALIBRATION.E0
 
 interface RunRow {
@@ -128,6 +194,10 @@ function summarize(rows: RunRow[]): Record<string, unknown> {
   const recall = total ? round(tp / (tp + fn || 1), 4) : 0;
   const accuracy = total ? round((tp + tn) / total, 4) : 0;
   const f1 = precision + recall ? round((2 * precision * recall) / (precision + recall), 4) : 0;
+  const scores = covered.map((r) => r.shownScore);
+  const labelsBool = covered.map((r) => r.label);
+  const rho = spearman(scores, labelsBool.map((v) => (v ? 1 : 0)));
+  const auc = aucFromScores(scores, labelsBool);
   return {
     covered: covered.length,
     total: rows.length,
@@ -138,6 +208,8 @@ function summarize(rows: RunRow[]): Record<string, unknown> {
     recall,
     accuracy,
     f1,
+    spearmanRho: rho,
+    auc,
     note: 'positive = credential SHOULD be issued. Rows with ingestion errors are excluded from the confusion matrix, never counted as correct abstentions.'
   };
 }
