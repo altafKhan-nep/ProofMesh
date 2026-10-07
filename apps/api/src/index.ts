@@ -20,7 +20,7 @@ async function main(): Promise<void> {
   await initDb();
   await loadSnapshot(store);
   startPersistenceLoop(store);
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: true, trustProxy: true });
   const rules = rateLimitsFromEnv();
   const limiter = new RateLimiter(rules);
 
